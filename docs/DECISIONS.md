@@ -896,13 +896,13 @@ M3 的实现是 `pool = 当前 items`，于是**移除一个志愿后无法再�
    prebuild → node scripts/gen-api-types.mjs
      [gen:api] 21 个端点 / 69 个 schema ← http://127.0.0.1:8000/openapi.json
    vite v6.4.3 building for production...
-   ✓ 609 modules transformed.
+   ✓ 610 modules transformed.
    dist/index.html                    0.77 kB │ gzip:   0.49 kB
    dist/assets/index-*.css           29.27 kB │ gzip:   5.23 kB
-   dist/assets/index-*.js            99.71 kB │ gzip:  31.27 kB
+   dist/assets/index-*.js           101.76 kB │ gzip:  32.22 kB
    dist/assets/react-*.js           165.56 kB │ gzip:  54.17 kB
    dist/assets/echarts-*.js         554.81 kB │ gzip: 184.98 kB
-   ✓ built in 5.50s                                                     （exit=0）✅
+   ✓ built in 5.62s                                                     （exit=0）✅
 
 2) npm run typecheck
    tsc --noEmit → 无输出                                        （exit=0）✅

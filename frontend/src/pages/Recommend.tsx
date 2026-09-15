@@ -9,6 +9,7 @@ import {
   type Tier,
 } from '../api/client'
 import { EvidenceTable } from '../components/EvidenceTable'
+import { RankTrendChart } from '../components/RankTrendChart'
 import { ProbabilityBar } from '../components/ProbabilityBar'
 import { ErrorNote, EmptyState, Loading, SourceLink, WarningList } from '../components/StateBlocks'
 import { TierBadge } from '../components/TierBadge'
@@ -520,6 +521,13 @@ function RecommendCard({
               </ul>
             </div>
           )}
+
+          <div>
+            <h4 className="text-sm font-semibold text-slate-700">位次趋势（纵轴反转：越高 = 门槛越高）</h4>
+            <div className="mt-1">
+              <RankTrendChart evidence={item.evidence ?? []} studentRank={studentRank} height={180} />
+            </div>
+          </div>
 
           <div>
             <h4 className="text-sm font-semibold text-slate-700">历史证据（哪年 / 最低分 / 最低位次 / 计划数）</h4>
