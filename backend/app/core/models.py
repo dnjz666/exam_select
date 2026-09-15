@@ -367,6 +367,9 @@ class PlanItem(BaseModel):
     unit: AdmissionUnit
     tier: Tier = Tier.NO_DATA
     probability: float | None = None
+    #: ±1σ 概率区间。志愿表页同样**只能显示区间**（AGENTS.md §8），故随志愿项一起下发，
+    #: 而不是让前端拿单点概率自己编一个区间。
+    probability_interval: list[float] | None = None
     utility: float = 0.0
     obey_adjustment: bool | None = None  # 院校专业组模式必填；专业+院校恒为 None
     notes: list[str] = Field(default_factory=list)
@@ -492,6 +495,28 @@ class BatchRule(BaseModel):
 
     # ---- 已知待办 / 时效提醒（不影响来源等级；与 assumptions 的区别见 DATA_DICTIONARY）
     # 例："依据为 2020/2021 年官网问答，未取当年录取工作意见再核"
+    caveats: list[str] = Field(default_factory=list)
+
+
+class SubjectPool(BaseModel):
+    """省份 3+3 **选考科目池**（AGENTS.md §8.1 Step 2 的唯一数据来源）。
+
+    这是**规则事实**（"从几门里选 3 门"），因此与 ``BatchRule`` 同受来源纪律约束：
+    没有 ``source_url`` + ``source_quote`` 就不许写进代码（宁可不答，不可编造）。
+
+    ⚠️ 科目池是**省级**规则，与批次无关；未核实到官方原文的省份保持 ``None``，
+    由 ``services.meta_service`` 以「招生计划反推」方式给出**明确标注非官方**的降级视图，
+    绝不把反推结果伪装成规则（见 ``origin`` 字段）。
+    """
+
+    province: str
+    mode: str  # "7选3" / "6选3"
+    choose: int = 3  # 需选门数（3+3 恒为 3，独立成字段以防未来改革）
+    subjects: list[str]  # 官方规范科目名（如"思想政治"，不是"政治"）
+    source_url: str = ""
+    source_quote: str = ""  # 官方原文摘录（逐字，不得改写）
+    verified_status: VerifiedStatus = VerifiedStatus.UNVERIFIED
+    verified_year: int | None = None
     caveats: list[str] = Field(default_factory=list)
 
 

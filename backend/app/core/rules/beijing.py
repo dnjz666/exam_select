@@ -13,11 +13,13 @@ M1 需从《北京市2026年普通高等学校招生工作规定》原文再核�
 
 from __future__ import annotations
 
-from app.core.models import BatchRule, UnitType, VerifiedStatus
+from app.core.models import BatchRule, SubjectPool, UnitType, VerifiedStatus
 from app.core.rules.base import StandardProvinceRule
 
 BJ_URL = "https://www.beijing.gov.cn/fuwu/bmfw/sy/jrts/202606/t20260611_4695756.html"
 BJ_OFFICIAL_URL = "https://www.bjeea.cn/html/gkgz/tzgg/2026/0614/88216.html"
+#: 选考科目池来源：《北京市2026年普通高等学校招生工作规定》（考试院官网原文）
+BJ_POOL_URL = "https://www.bjeea.cn/html/gkgz/tzgg/2026/0505/88114.html"
 
 _ASSUME_DOWNGRADE = (
     "来源为市政府门户转述北京教育考试院（PRIMARY-GOV）；考试院官网《志愿填报须知》"
@@ -70,3 +72,21 @@ class BeijingRule(StandardProvinceRule):
 
     # 供 M1 待办引用：升 PRIMARY 的原文入口
     official_source_url = BJ_OFFICIAL_URL
+
+    #: 3+3 选考科目池（AGENTS.md §8.1 Step 2）。
+    #: ⚠️ 本科选考池为 6 门；专科批另用学考合格考 8 门作资格要求（含信息技术/通用技术），
+    #:    那是专科资格要求**不是**本科选考池，不得混入。
+    subject_pool = SubjectPool(
+        province="beijing",
+        mode="6选3",
+        choose=3,
+        subjects=["物理", "化学", "生物", "思想政治", "历史", "地理"],
+        source_url=BJ_POOL_URL,
+        source_quote="学考等级考科目为思想政治、历史、地理、物理、化学、生物6门，由考生自主选择3门参加考试。",
+        verified_status=VerifiedStatus.PRIMARY,
+        verified_year=2026,
+        caveats=[
+            "专科（高职）批以学考合格考 8 门（含信息技术、通用技术）作资格要求，"
+            "属专科资格要求，不进入本科选考科目池",
+        ],
+    )

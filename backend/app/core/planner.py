@@ -29,6 +29,7 @@ from app.core.models import (
     Tier,
     VolunteerPlan,
 )
+from app.core.probability import probability_interval
 from app.core.rules.base import ProvinceRule
 
 #: 平行志愿的默认递进顺序（冲 → 稳 → 保 → 垫）
@@ -37,6 +38,15 @@ _TIER_ORDER: tuple[Tier, ...] = (Tier.CHONG, Tier.WEN, Tier.BAO, Tier.DIAN)
 _CONSERVATIVE_FIRST: tuple[Tier, ...] = (Tier.DIAN, Tier.BAO, Tier.WEN, Tier.CHONG)
 #: TOO_RISKY 的下界（仅用于文案；数值来自 ModelParams.tier_bounds 的语义）
 _TOO_RISKY_FLOOR = 0.10
+
+
+def _interval_of(candidate: ScoredUnit, params: ModelParams) -> list[float] | None:
+    """志愿项的 ±1σ 概率区间（UI 只显示区间，§8）。无概率/无 σ → ``None``，不编造。"""
+    result = candidate.probability_result
+    if result is None:
+        return None
+    interval = probability_interval(result, params)
+    return list(interval) if interval else None
 
 
 def _tier_index(tier: Tier) -> int:
@@ -279,6 +289,8 @@ def generate_plan(
             unit=candidate.unit,
             tier=candidate.tier,
             probability=candidate.probability,
+            # UI 只显示区间（AGENTS.md §8）：区间必须由算法层给出，前端不得自行编造
+            probability_interval=_interval_of(candidate, params),
             utility=candidate.utility,
             obey_adjustment=obey_adjustment if batch.has_major_adjustment else None,
             # 把概率模型的人话理由带进志愿项：报告/UI 的"每志愿依据"直接可读（§7/§8）

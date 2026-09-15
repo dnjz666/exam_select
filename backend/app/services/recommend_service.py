@@ -274,6 +274,7 @@ def rule_block(batch: BatchRule, rule: ProvinceRule) -> dict:
         "province": rule.province,
         "batch_code": batch.batch_code,
         "batch_name": batch.batch_name,
+        "unit_type": batch.unit_type.value,
         "max_volunteers": batch.max_volunteers,
         "has_major_adjustment": batch.has_major_adjustment,
         "is_parallel": batch.is_parallel,

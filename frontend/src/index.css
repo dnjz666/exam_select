@@ -1,0 +1,185 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ------------------------------------------------------------------
+   全局基线
+   设计原则（AGENTS.md §8）：
+   - 首屏就是建档向导，不做营销落地页 → 版式偏"工作台"而非"官网"；
+   - 所有数字必须可溯源 → 数字用等宽字体，弱化视觉噪音、强化可核对性；
+   - HIGH 风险必须阻断式提示 → 见 .blocking-* 类。
+------------------------------------------------------------------ */
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-slate-100 text-slate-800 antialiased;
+    font-feature-settings: 'tnum' 1;
+  }
+
+  h1,
+  h2,
+  h3 {
+    @apply text-slate-900;
+  }
+
+  /* 位次/分数/概率等关键数字统一等宽，便于逐位核对 */
+  .num {
+    @apply font-mono tabular-nums;
+  }
+}
+
+@layer components {
+  .app-shell {
+    @apply mx-auto w-full max-w-[1400px] px-4 sm:px-6 lg:px-8;
+  }
+
+  .card {
+    @apply rounded-xl border border-slate-200 bg-white shadow-card;
+  }
+
+  .card-pad {
+    @apply p-4 sm:p-5;
+  }
+
+  .card-title {
+    @apply text-base font-semibold text-slate-900;
+  }
+
+  .muted {
+    @apply text-sm text-slate-500;
+  }
+
+  .label {
+    @apply mb-1 block text-sm font-medium text-slate-700;
+  }
+
+  .input {
+    @apply w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900
+      outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-100
+      disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium
+      transition disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-primary {
+    @apply btn bg-sky-600 text-white hover:bg-sky-700 active:bg-sky-800;
+  }
+
+  .btn-secondary {
+    @apply btn border border-slate-300 bg-white text-slate-700 hover:bg-slate-50;
+  }
+
+  .btn-ghost {
+    @apply btn text-slate-600 hover:bg-slate-100;
+  }
+
+  .btn-danger {
+    @apply btn bg-rose-600 text-white hover:bg-rose-700;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium;
+  }
+
+  .chip-slate {
+    @apply chip bg-slate-100 text-slate-600;
+  }
+
+  .divider {
+    @apply my-4 border-t border-slate-200;
+  }
+
+  /* 表格：历史证据链（哪年 / 最低分 / 最低位次 / 计划数 / 来源） */
+  .data-table {
+    @apply w-full border-collapse text-sm;
+  }
+
+  .data-table th {
+    @apply border-b border-slate-200 bg-slate-50 px-3 py-2 text-left font-medium text-slate-600;
+  }
+
+  .data-table td {
+    @apply border-b border-slate-100 px-3 py-2 text-slate-700;
+  }
+
+  /* HIGH 风险：阻断式提示（§8.2） */
+  .blocking-banner {
+    @apply rounded-xl border-2 border-rose-300 bg-rose-50 p-4;
+  }
+
+  .blocking-banner-title {
+    @apply flex items-center gap-2 text-base font-semibold text-rose-800;
+  }
+
+  .callout {
+    @apply rounded-lg border px-3 py-2 text-sm;
+  }
+
+  .callout-warn {
+    @apply callout border-amber-200 bg-amber-50 text-amber-900;
+  }
+
+  .callout-info {
+    @apply callout border-sky-200 bg-sky-50 text-sky-900;
+  }
+
+  .callout-danger {
+    @apply callout border-rose-200 bg-rose-50 text-rose-900;
+  }
+
+  .callout-muted {
+    @apply callout border-slate-200 bg-slate-50 text-slate-600;
+  }
+
+  .source-link {
+    @apply break-all text-xs text-sky-700 underline decoration-dotted hover:text-sky-900;
+  }
+
+  .skeleton {
+    @apply animate-pulse rounded bg-slate-200;
+  }
+}
+
+/* ------------------------------------------------------------------
+   打印样式：/report 必须可打印（AGENTS.md §8.2「可打印志愿报告」）
+------------------------------------------------------------------ */
+@media print {
+  @page {
+    size: A4;
+    margin: 14mm 12mm;
+  }
+
+  body {
+    @apply bg-white text-black;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .card {
+    @apply border-slate-300 shadow-none;
+    break-inside: avoid;
+  }
+
+  .print-avoid-break {
+    break-inside: avoid;
+  }
+
+  a.source-link::after {
+    content: ' (' attr(href) ')';
+    font-size: 9px;
+  }
+}

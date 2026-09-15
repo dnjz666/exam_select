@@ -21,8 +21,8 @@
 | M1 | 数据层与模拟数据生成 | ✅ 完成 |
 | M2 | 核心算法引擎 | ✅ 完成 |
 | M3 | 后端 API | ✅ 完成 |
-| M4 | 前端 | ⬜ **下一轮** |
-| M5 | Agent 层与防幻觉 | ⬜ |
+| M4 | 前端（5 个页面 + 端到端闭环） | ✅ 完成 |
+| M5 | Agent 层与防幻觉 | ⬜ **下一轮** |
 | M6 | 真实数据接入 | ⬜（范围另议，需确认数据来源授权） |
 | M7 | 加固与交付 | ⬜ |
 
@@ -30,11 +30,13 @@
 
 | 项 | 实测 |
 |---|---|
-| 测试 | `193 passed`（其中 API 集成测试 21 项） |
-| 算法层覆盖率（`app.core`） | **95.93%**（门槛 ≥90%） |
+| 后端测试 | `201 passed`（其中 API 集成测试 25 项） |
+| 算法层覆盖率（`app.core`） | **95.62%**（门槛 ≥90%） |
 | 黄金用例 | **38 条**（概率 21 / 过滤 12 / 规则 5） |
 | 回测（浙江 2025，811 单位 × 150 考生 × 21,184 样本） | 保底失效率 **0.00%** · 稳档命中率 **86.02%** · 冲档命中率 **31.43%** · Brier **0.0057**（四项全达标） |
-| API | `/api/v1` 下 **20 条路由**，OpenAPI 3.1.0 可解析 |
+| API | `/api/v1` 下 **21 条路由**，OpenAPI 3.1.0 可解析（**69 个 schema，全部强类型**） |
+| 前端构建 | `vite build` ✓ 609 modules；`tsc --noEmit` 零错误；vitest 10 项通过 |
+| 前端端到端 | `npm run smoke` 闭环全通（建档 → 换算 → 推荐 → 志愿表 → 手改 → 导出 PDF/XLSX） |
 | 模拟数据 | 6 省市 · 418 院校 · 528 专业 · 4,645 投档单位 · 16,297 条历史 · 23,225 条计划快照（全部 `is_synthetic=1`） |
 
 ---
@@ -110,6 +112,37 @@ backend\.venv\Scripts\python.exe scripts\run_backtest.py --province zhejiang --y
 > `pytest backend/tests` 依赖**已播种**的数据库；未播种时会明确失败并提示 `scripts/seed.py --reset`
 > （不会静默跳过）。回测报告 `backtest_report.json|md` 是构建产物，已 gitignore。
 
+### 4. 前端（React 18 + TS + Vite + Tailwind，独立工程）
+
+前端与后端**只通过 HTTP 契约通信**（AGENTS.md §4.3）：类型从后端 OpenAPI 生成，
+API 基址来自 `VITE_API_BASE_URL`（dev 用 Vite proxy 把 `/api` 转发到 `127.0.0.1:8000`），
+**代码里不出现硬编码的 localhost**。
+
+```powershell
+Set-Location frontend
+pnpm install                     # 依赖装一次即可
+pnpm gen:api                     # 从后端 /openapi.json 生成 src/api/schema.d.ts（后端需在跑）
+pnpm dev                         # http://127.0.0.1:5173  ← 首屏即建档向导
+
+# M4 验收命令（AGENTS.md §10）
+pnpm build                       # prebuild 自动先跑 gen:api
+pnpm typecheck                   # tsc --noEmit
+pnpm test                        # vitest（纯函数：概率区间格式化等）
+pnpm smoke                       # 端到端闭环冒烟（打真后端，断言 §8 的 UI 铁律）
+```
+
+> ⚠️ **第三条硬约束**：`pnpm build` / `pnpm dev` / `pnpm test` 依赖 esbuild 的原生二进制，
+> 而 esbuild 需要 spawn 子进程并走管道 stdio —— **agent 沙箱会拒绝（spawn EPERM）**，
+> 因此这三条命令也要**在真实终端跑**（与 pip 同类限制，见 ADR-011 环境事实）。
+> `pnpm typecheck` 是纯 `tsc`，不受影响。
+>
+> 另注：本机 `curl.exe`/`Invoke-WebRequest` 走 schannel，在 agent 沙箱内会报
+> `SEC_E_NO_CREDENTIALS`；**Node 自带的 TLS 栈正常**，所以 `pnpm install` 与 `node scripts/*.mjs`
+> 都能联网 —— 排错时别误判成"断网"。
+
+**5 个页面**：`/profile` 建档向导（首屏）· `/recommend` 推荐列表 · `/plan` 志愿表 ·
+`/report` 可打印报告 · `/chat` 对话（M3 通道，能力边界如实标注）。
+
 ---
 
 ## 端到端示例（已实测跑通）
@@ -168,21 +201,22 @@ $scan = Invoke-RestMethod -Method Post -Uri "$api/risk/scan" -ContentType $json 
 
 ---
 
-## API 一览（`/api/v1`，20 条路由）
+## API 一览（`/api/v1`，21 条路由）
 
 | 分组 | 端点 | 说明 |
 |---|---|---|
-| 元数据 | `GET /meta/provinces` | 六省批次级规则（含 `source_url`、`source_quote`、核实状态、是否需「规则待核实」横幅） |
+| 元数据 | `GET /meta/provinces` | 六省批次级规则 + **选考科目池**（含 `source_url`、`source_quote`、核实状态、`current_year`、是否需「规则待核实」横幅） |
 | | `GET /meta/provinces/{province}/rule` | 单省规则；未知省份 → 404 |
-| | `GET /meta/tiers` | 分层区间、配额、**安全闸门**参数与免责声明 |
+| | `GET /meta/provinces/{province}/subject-coverage?subjects=物理,化学` | **可报专业覆盖率**（用选考要求真实统计，非估算） |
+| | `GET /meta/tiers` | 分层区间、配额、**安全闸门**参数与免责声明文案 |
 | 考生档案 | `POST /students` | 建档（草稿态）→ 返回 `missing_fields` |
 | | `GET /students/{id}` · `PATCH /students/{id}` | 读取 / 增量补全 |
 | | `POST /students/{id}/resolve-rank` | 分数 → 位次（含等效分与来源；表缺失 → 503，不估算） |
 | 数据查询 | `GET /colleges/search` · `GET /majors/search` | 院校 / 专业检索 |
 | | `GET /units/{unit_id}/history?years=3` | 某投档单位逐年历史（每条带来源） |
-| 核心推荐 | `POST /recommend` | 过滤 → 打分 → 概率 → 分层排序；每项带证据链与概率**区间** |
-| 志愿表 | `POST /plans/generate` | 生成（配额/借位/排序/去重 + 风险扫描） |
-| | `GET /plans/{id}` · `PATCH /plans/{id}/items` · `POST /plans/{id}/validate` | 读取 / 手改（限候选池内）/ 重跑校验 |
+| 核心推荐 | `POST /recommend` | 过滤 → 打分 → 概率 → 分层排序；每项带 `college`/`major`、证据链与概率**区间** |
+| 志愿表 | `POST /plans/generate` | 生成（配额/借位/排序/去重 + 风险扫描 + 院校索引） |
+| | `GET /plans/{id}` · `PATCH /plans/{id}/items` · `POST /plans/{id}/validate` | 读取 / 手改（**生成时候选池内**，移除可逆）/ 重跑校验 |
 | | `GET /plans/{id}/export?format=pdf\|xlsx` | 导出报告（免责声明 + 来源清单） |
 | 风险速查 | `POST /risk/scan` | 对一组 `unit_id` 直接扫风险（§6.8 全码 + 可执行建议） |
 | 对话 | `POST /chat`（SSE）· `GET /chat/{session_id}/history` | M3 仅合规通道：**回复不含数字**、首次回复带免责声明；工具化回答见 M5 |
@@ -196,6 +230,10 @@ $scan = Invoke-RestMethod -Method Post -Uri "$api/risk/scan" -ContentType $json 
 **四条契约铁律**（有测试守着）：① 每个推荐项 `evidence` 非空且带 `source_url`；
 ② `probability is None ⇔ confidence == NO_DATA` 且 `reasons` 说明原因；
 ③ 不出现无来源的数字；④ OpenAPI 自动生成，前端类型由此生成，不手写重复类型。
+
+> 契约自 M4 起**全部强类型**（69 个 schema）：响应体不再用裸 `dict`，
+> 字段改名/漏字段会在测试中直接报 `ResponseValidationError`；
+> 前端的 `src/api/schema.d.ts` 即由这份 schema 生成（见 ADR-011）。
 
 ---
 
@@ -213,8 +251,14 @@ exam_select/
 │   │   ├── etl/               # 确定性模拟数据生成器 + 数据质量校验
 │   │   ├── services/          # L4 编排：查库 → 组装 → 调 core → 存结果
 │   │   └── main.py            # 入口（/health + /api/v1 装配 + 领域异常映射）
-│   └── tests/                 # 193 项测试 + golden/（38 条黄金用例）
-├── frontend/                  # ⬜ M4 未开始（当前只有占位目录）
+│   └── tests/                 # 201 项测试 + golden/（38 条黄金用例）
+├── frontend/                  # L5：React 18 + TS + Vite + Tailwind + ECharts（独立工程）
+│   ├── src/pages/             # Profile(首屏向导) / Recommend / PlanBoard / Report / Chat
+│   ├── src/components/        # TierBadge · ProbabilityBar · RankTrendChart · PlanRow · RiskPanel · …
+│   ├── src/api/client.ts      # 信封感知的 fetch 封装（类型来自生成的 schema.d.ts）
+│   ├── src/lib/               # format(纯函数，有单测) · labels(文案配色) · hooks
+│   ├── src/store/             # zustand + persist：向导草稿 / 志愿表与意愿序
+│   └── scripts/               # gen-api-types.mjs（生成物 gitignore）· smoke.mjs（端到端冒烟）
 ├── data/                      # exam_select.db（gitignore）、synthetic/、wheels/（离线依赖缓存）
 └── scripts/                   # seed.py、run_backtest.py、calibrate_params.py、pip_online.ps1
 ```
@@ -231,9 +275,13 @@ exam_select/
   **不建议为凑指标继续调参**（会滑向对测试集过拟合）。详见 `docs/DECISIONS.md` ADR-009。
 - **`/chat` 不是可用助手**：M3 只交付 SSE 通道、内存会话历史与防幻觉底线；
   工具调用 / System Prompt / guard 输出校验器属 M5，会话历史届时落库（重启即清空）。
-- **志愿表手改仅限候选池内**（池外 `unit_id` → 422），新增志愿需重新生成。
+- **志愿表手改限"生成时的候选池"**（由同一套评估现场重算，硬约束一条都绕不过；
+  池外 `unit_id` → 422）。因此**移除是可逆的**，但候选池 ≠ 全部单位：
+  被硬约束剔除或概率 <10% 的单位仍需调整筛选后重新生成。
+- **前端无浏览器 E2E**：本轮的闭环验证是 `pnpm smoke`（按 UI 真实调用序列打真后端），
+  能证明契约与数据流正确，**不能**证明像素与交互细节无瑕疵；Playwright 视觉回归留 M7。
 - **仅有浙江是端到端闭环**，其余五省当前只有规则包（M1 交付 20 个批次级规则）。
-- 尚无 alembic 迁移（dev 启动 `create_all` 建表）、无鉴权、无前端。
+- 尚无 alembic 迁移（dev 启动 `create_all` 建表）、无鉴权。
 - 回测/敏感度热力图（§3.1）与 §6.8 的两个增量风险码（调剂越界、退档条款命中）仍待补。
 
 ---
@@ -246,6 +294,10 @@ exam_select/
 | 测试报"数据库为空" | 先 `backend\.venv\Scripts\python.exe scripts\seed.py --reset` |
 | pip 卡住 10 分钟以上 | 用 `scripts\pip_online.ps1`（已 pin 超时 15s / 重试 2 次）；镜像不通加 `-ViaProxy` |
 | `无法加载文件 … 因为在此系统上禁止运行脚本` | 用 `powershell -ExecutionPolicy Bypass -File scripts\pip_online.ps1` |
+| 前端 `spawn EPERM`（`pnpm build` / `dev` / `test`） | esbuild 需要 spawn 子进程，agent 沙箱禁止 → **在真实终端跑**；`pnpm typecheck` 不受影响 |
+| `curl.exe` 报 `schannel: AcquireCredentialsHandle failed` | 本机 schannel 在 agent 沙箱内不可用；改用 Node（`pnpm install` / `node scripts/*.mjs` 都正常） |
+| `pnpm install` 报 `ERR_PNPM_IGNORED_BUILDS` / esbuild postinstall EPERM | 已在 `frontend/pnpm-workspace.yaml` 显式 `allowBuilds: esbuild: false`（原生二进制由可选依赖提供） |
+| 前端 `gen:api` 报"无法获取实时 OpenAPI" | 后端没起。启动后重跑；离线时会自动回退 `frontend/openapi.snapshot.json` |
 | 中文乱码（终端） | 先 `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8` |
 | 根目录出现 `debug.log` | 非项目产物（DSH Desktop 的 Electron crashpad 日志），已在 `.gitignore` 忽略 |
 
@@ -257,6 +309,11 @@ exam_select/
   **严禁用于真实填报**；院校名与专业名为公开信息，但数值是造的。
 - **天津、海南**规则仍为转载源（`SECONDARY`），升级 `PRIMARY` 前其推荐结果**不得用于真实填报**，
   UI 必须显示「规则待核实」横幅（接口已在 `meta` 中返回 `requires_banner` 供前端直接使用）。
+- **选考科目池**（"从几门里选 3 门"）自 M4 起按同一套来源纪律落码，六省各有官方来源：
+  浙江 / 上海 / 北京 / 山东 / 海南 = `PRIMARY`（考试院官网原文）；天津 = `PRIMARY_GOV`
+  （市政府门户转述，已降级并写明理由）。浙江独有"技术"科目；官方行文"生物/生物学"并存，
+  系统统一用招生计划字段口径"生物"并在 `caveats` 记录差异。未核实到原文的省份**降级为
+  "由招生计划反推"**（`origin=DATA_DERIVED` + 前端提示），**绝不编造科目池**。
 - 系统**不做录取概率承诺**：概率一律以区间 + 证据链呈现，文案禁止"保证录取""一定能上""百分百"。
 - 真实数据接入（M6）前必须确认来源授权与使用条款，不得擅自抓取考试院网站。
 - 免责声明必须出现在：报告页、导出 PDF/XLSX、Chat 首次回复（当前均已落实）。

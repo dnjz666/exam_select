@@ -268,11 +268,22 @@ exam_select/
 │       └── test_agent_hallucination.py   # ★ 幻觉测试
 ├── frontend/
 │   ├── src/
+│   │   ├── main.tsx               # 入口：路由（/ → /profile，首屏即向导）
+│   │   ├── App.tsx                # 外壳：导航 + 档案完成度常驻提示 + 免责声明页脚
 │   │   ├── pages/{Profile,Recommend,PlanBoard,Report,Chat}.tsx
-│   │   ├── components/{TierBadge,ProbabilityBar,RankTrendChart,PlanRow,RiskPanel}.tsx
-│   │   ├── api/client.ts
-│   │   └── store/
-│   └── package.json
+│   │   ├── components/            # TierBadge · ProbabilityBar · RankTrendChart · PlanRow ·
+│   │   │                          # RiskPanel · EvidenceTable · GradientChart · RuleBanner ·
+│   │   │                          # StepIndicator · Disclaimer · Chart(ECharts 容器) · StateBlocks
+│   │   ├── api/client.ts          # 信封感知的 fetch 封装；类型全部来自生成的 schema.d.ts
+│   │   ├── api/schema.d.ts        # ★ 生成物（gitignore）：openapi-typescript 从 /openapi.json 生成
+│   │   ├── lib/                   # format(纯函数，有单测) · labels(文案配色) · hooks
+│   │   ├── store/                 # zustand + persist：向导草稿 / 志愿表与意愿序
+│   │   └── index.css              # Tailwind 基线 + 组件类 + 打印样式
+│   ├── scripts/gen-api-types.mjs  # 在线取 /openapi.json，失败回退 openapi.snapshot.json
+│   ├── scripts/smoke.mjs          # 端到端闭环冒烟（按 UI 真实调用序列打真后端）
+│   ├── openapi.snapshot.json      # 后端 /openapi.json 的快照（离线构建回退，**进版本库**）
+│   ├── pnpm-workspace.yaml        # pnpm 11 的构建脚本白名单（allowBuilds）
+│   └── package.json               # 脚本：gen:api / dev / build / typecheck / test / smoke
 ├── data/
 │   ├── raw/{province}/{year}/     # 真实原始数据（M6）
 │   ├── synthetic/                 # 生成的模拟数据
@@ -867,9 +878,12 @@ class VolunteerPlan(BaseModel):
 
 ```
 # 元数据
-GET    /meta/provinces                       # 各省规则（含 source_url）
+GET    /meta/provinces                       # 各省规则（含 source_url、核实状态、**选考科目池**、current_year）
 GET    /meta/provinces/{p}/rule
-GET    /meta/tiers
+GET    /meta/provinces/{p}/subject-coverage?subjects=物理,化学,生物
+                                             # §8.1 Step 2 的可报专业覆盖率：真实统计（非估算）；
+                                             # 同时回传 subject_pool（origin=RULE | DATA_DERIVED）
+GET    /meta/tiers                           # 分层区间 / 配额 / 安全闸门 / 免责声明文案（UI 唯一来源）
 
 # 考生档案
 POST   /students                             # 创建档案 → 返回 missing_fields 供追问
@@ -884,16 +898,20 @@ GET    /units/{unit_id}/history?years=3
 
 # 核心推荐
 POST   /recommend
-  req  { student_id, filters:{regions,majors,levels,tuition_max},
+  req  { student_id, filters:{regions,majors,levels,tuition_max,intent_as_hard},
          weights:{...}, limit, include_too_risky }
-  res  { items:[{ unit, probability, tier, confidence, utility,
+  res  { items:[{ unit, college, major, probability, **probability_interval**, tier, confidence, utility,
+                  score_breakdown, predicted_min_rank, sigma,
                   evidence[], adjustments[], reasons[], warnings[] }],
-         stats:{ tier_distribution, filtered_out_count, data_coverage } }
+         stats:{ tier_distribution, filtered_out_count, data_coverage, rule:{unit_type,...} } }
 
 # 志愿表
 POST   /plans/generate        # 生成志愿表
 GET    /plans/{id}
+  res  { plan:{items:[{ unit, tier, probability, **probability_interval**, obey_adjustment, notes[] }]},
+         risks[], stats{}, **colleges**:{college_id: {name, city, level_tags, is_public, source_url}} }
 PATCH  /plans/{id}/items      # 手改（拖拽排序、增删）
+  req  { items:[{unit_id, obey_adjustment?}], obey_adjustment?, **filters?** }
 POST   /plans/{id}/validate   # 风险扫描
 GET    /plans/{id}/export?format=pdf|xlsx
 

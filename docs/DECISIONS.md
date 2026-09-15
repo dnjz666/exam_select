@@ -766,3 +766,202 @@ M2 引入 numpy/scipy 时请在本机终端执行：
 - 敏感度热力图（§3.1）与 §6.8 的两个增量风险码仍待补；
 - **下一轮从 M4 开始**：按 §8 实现首屏向导（省份联动 → 选考 3 门 → 成绩换算），
   推荐列表（概率区间 + 展开证据链），志愿表（拖拽/风险面板/导出），报告页（免责声明 + 来源清单）。
+
+---
+
+## ADR-011 · M4 前端：技术选型与"先补契约、再写界面"
+
+**背景**：M4 要在 React/TS 上实现 5 个页面。动手前先核对了 §8 的三条硬要求与 M3 的实际契约，
+发现**照现有契约写不出合格的界面**——问题不在前端，在契约本身。
+
+**决策 1：先把 OpenAPI 变成"真有类型"的契约（否则 §4.3 规则 2 形同虚设）**
+
+M3 的响应体几乎全是裸 `Envelope[dict]`，生成出来的 TS 类型等价于 `{[key:string]: unknown}`。
+此时"类型从 OpenAPI 生成"只是仪式：字段改名、漏字段都不会被任何一方发现。
+因此把 service 层实际返回的字段**逐字段**声明成 Pydantic 模型
+（`RecommendItem` / `RecommendStats` / `PlanPayload` / `ProvinceMeta` / `BatchMeta` /
+`SubjectPoolMeta` / `SubjectCoveragePayload` / `StudentPayload` / `TiersPayload` /
+`UnitHistoryPayload` / `RiskScanPayload` / `ChatHistoryPayload` …），并挂到各路由的 `response_model`。
+
+- 收益：契约从"文档"变成**校验器**。字段名一改，测试立刻 `ResponseValidationError`；
+  前端拿到的也是真类型（69 个 schema）。
+- 代价：FastAPI 会按 `response_model` 过滤响应体。为此新增
+  `test_openapi_payloads_are_typed_not_free_form`，断言关键载荷字段齐全，
+  防止"过滤掉一个字段而没人发现"。
+- 被否决：前端手写一份 `models.ts`（违反 §4.3 规则 2，且必然与后端漂移）；
+  继续用 `dict` + 前端 `as` 断言（把契约风险转成运行时崩溃）。
+
+**决策 2：选考科目池必须有官方来源，拿不到就降级而不是编造（§8.1 Step 2）**
+
+§8.1 要求"从该省可选科目中恰好选 3 门"，但 M1 只落了批次规则，**没有科目池**。
+六省科目池是**规则事实**，因此按 §6.6 同一套来源纪律落码：
+新增 `core.models.SubjectPool`（province / mode / choose / subjects / source_url / source_quote /
+verified_status / verified_year / caveats），各省规则包各自声明。
+
+- 六省全部拿到政府或考试院层级来源（浙江/上海/北京/山东/海南 = PRIMARY；
+  天津 = PRIMARY_GOV，理由与降级依据写入 `caveats`）。
+- 两个易错点已处理：① **浙江独有"技术"（7选3）**，其余五省 6选3，测试强制；
+  ② 官方行文"生物/生物学"并存，池内统一用**招生计划字段口径**（"生物"），
+  并在 `caveats` 里如实记录官方写法差异 —— 否则硬字符串匹配会漏。
+- 拿不到原文时**降级而非编造**：`subject_pool_meta()` 会退化为"由招生计划反推"，
+  带 `origin="DATA_DERIVED"` + `requires_caution=True`，前端必须显示"非官方科目池"提示。
+- 新增 `GET /meta/provinces/{p}/subject-coverage`：用 `core.filters.subject_matches`
+  真实统计"该组合可报 N / 共 M 个投档单位"，供 Step 2 实时显示覆盖率（非估算）。
+- 被否决：前端写死六省科目名（违反"无来源数字不许写进代码"）；
+  用"有招生计划的科目并集"当官方科目池（会漏掉无人要求的科目，等于编造一个科目池）。
+
+**决策 3：`PATCH /plans/{id}/items` 的候选池改为"生成时的候选池"**
+
+M3 的实现是 `pool = 当前 items`，于是**移除一个志愿后无法再加回来**——
+在志愿填报工具里，这是危险缺陷（误删一个保底志愿却不可恢复）。
+而 M3 自己的 docstring 写的就是"只允许使用该志愿表**生成时**的候选池"，
+即实现与文档意图不一致。
+
+- 改为：用同一套 `recommend_service.evaluate_candidates` 现场重算候选池
+  （同样的硬约束过滤 + 同样的概率口径，`filters` 由请求带回以保持口径一致）。
+- 附带收益：重算后每个志愿的 `tier/probability/interval/utility/notes` 都来自同一口径，
+  不会因为手工搬运而与推荐列表不一致。
+- 仍严禁越界：硬约束（选考/体检/语种/单科/批次/学费上限）一条都绕不过，池外单位照旧 422。
+- 回归测试：`test_plan_remove_is_reversible`。
+
+**决策 4：志愿项也带概率区间；志愿表带院校名索引**
+
+- `PlanItem.probability_interval`（±1σ）：§8 要求"概率永远显示为区间"，
+  志愿表页当然也算。区间由算法层给出（`core.planner` 调 `probability_interval`），
+  **不让前端拿单点概率自己编一个区间**。
+- `PlanPayload.colleges`（`college_id → {name, city, level_tags, is_public, source_url}`）：
+  `PlanItem` 只有 `college_id`，没有院校名，志愿表页根本读不了。
+
+**决策 5：前端技术选型（尽量少依赖）**
+
+| 选择 | 理由 |
+|---|---|
+| React 18 + TS + Vite 6 + Tailwind 3 | 按 §4.1；Tailwind 3 而非 4（配置形态稳定，团队可预测） |
+| ECharts 5 + `echarts/core` 按需注册 | 只打包用到的图表与组件（位次趋势折线 + 梯度分布柱状） |
+| zustand + persist | 向导进度需同时存 localStorage 与后端草稿（§8.1），一个 600 行的状态库就够 |
+| **不引入拖拽库** | 志愿表用原生 HTML5 DnD + 上下移动按钮。少一个依赖，且**键盘可达**（DnD 不能是唯一路径） |
+| **不引入 react-query** | 服务端状态很轻（元数据 + 一次推荐 + 一张志愿表），多一个依赖就多一份版本面 |
+| vitest 只测纯函数 | 组件行为用"真后端"端到端验证（`npm run smoke`），不在 jsdom 里 mock 一套假 API —— 那样测的是 mock |
+| 不引入 eslint | 本轮验收是 `build + typecheck`；TypeScript 严格模式已覆盖主要风险面，lint 留 M7 |
+
+**关键设计点（对齐 §8 硬要求）**
+
+1. **首屏即向导**：`/` 重定向到 `/profile`，无落地页。
+   Step 1 选中省份**立即**显示投档模式/志愿数/组内专业数/调剂规则/核实徽标。
+   Step 2 选满 3 门后其余禁用；实时覆盖率来自后端真实统计。
+   Step 3 分数→位次换算显示完整溯源（位次/总人数/来源链接/等效分）；
+   换算失败（503 `RANK_UNAVAILABLE`）时明确提示"位次换算不可用"并引导手填；
+   **分数与手填位次冲突时给出两个按钮让考生选，绝不擅自覆盖**。
+2. **概率永远是区间**：`ProbabilityBar` 只画区间带，刻意**不画单点标记**（单点会诱导伪精确）。
+   区间过窄时自动加小数位，不美化放大。分层刻度来自 `/meta/tiers`，前端不写死 10/40/75/93。
+3. **证据链可展开**：`EvidenceTable` 把"本单位历史"与"Step 0 类比证据"**分表展示**，
+   类比证据不可能被误读成本校往年数据。
+4. **HIGH 风险阻断式**：志愿表页出现 HIGH 风险时，导出 PDF/Excel 被锁定，
+   必须勾选"我已阅读并理解"才解锁。
+5. **调剂选项按 `has_major_adjustment` 显隐**（不是按省份名判断）：
+   专业+院校模式不显示该选项（不存在调剂概念）。
+6. **报告页**含档案 + 志愿表 + 每志愿依据 + 风险 + **免责声明 + 数据来源清单**；
+   免责声明文案取后端 `/meta/tiers` 的 `disclaimer`（不在前端另写一份法律文案）；
+   打印样式把来源 URL 展开到纸面。
+7. **`/chat` 如实标注能力边界**：M3 的对话还不能查数据，回复里不含任何数字，
+   界面明说"完整工具化回答在 M5"，绝不把"还不会查"包装成"已经能建议"。
+
+**决策 6：`frontend/openapi.snapshot.json` 进版本库**
+
+`pnpm gen:api` 优先取**在线** `/openapi.json`（契约唯一来源），拿不到时回退到该快照。
+理由：`pnpm build` 是 M4 验收命令，不应因为"后端没起"而无法构建；快照是**后端产物副本**
+而非手写类型，且在线可用时永远优先取实时 schema。
+（生成物 `src/api/schema.d.ts` 仍然 `.gitignore`，不进版本库 —— §4.3 规则 2 未被破坏。）
+
+**环境事实（新增，踩过的坑）**
+
+- **本机 schannel 在 agent 沙箱内不可用**：`curl.exe`/`Invoke-WebRequest` 访问 HTTPS 会报
+  `schannel: AcquireCredentialsHandle failed (SEC_E_NO_CREDENTIALS)`；但 **Node 自带的 TLS 栈正常**。
+  因此 `pnpm install` 与 `node scripts/*.mjs` 都能联网，而 curl 不能 —— 排错时不要误判成"断网"。
+- **esbuild 在 agent 沙箱内 `spawn EPERM`**：Vite/Vitest 都要 spawn esbuild 原生二进制（管道 stdio），
+  沙箱禁止。因此 **`npm run build` / `npm run typecheck` / `npm run test` 必须在真实终端跑**
+  （与 ADR-007 追记第 6 条的 pip 问题同类）。`npm run typecheck`（纯 tsc）不受影响。
+- **pnpm 11 的构建脚本白名单**已从 `package.json` 的 `pnpm` 字段迁到 `pnpm-workspace.yaml`；
+  本仓库显式 `allowBuilds: esbuild: false`（其原生二进制由可选依赖 `@esbuild/win32-x64` 提供，
+  postinstall 只是兜底下载），避免在受限环境里让 `pnpm install` 因 EPERM 失败。
+
+---
+
+## M4 验收记录（2026-02）
+
+**验收命令与真实输出**（AGENTS.md §10 M4：`cd frontend && npm run build && npm run typecheck`）：
+
+```text
+1) npm run build
+   prebuild → node scripts/gen-api-types.mjs
+     [gen:api] 21 个端点 / 69 个 schema ← http://127.0.0.1:8000/openapi.json
+   vite v6.4.3 building for production...
+   ✓ 609 modules transformed.
+   dist/index.html                    0.77 kB │ gzip:   0.49 kB
+   dist/assets/index-*.css           29.27 kB │ gzip:   5.23 kB
+   dist/assets/index-*.js            99.71 kB │ gzip:  31.27 kB
+   dist/assets/react-*.js           165.56 kB │ gzip:  54.17 kB
+   dist/assets/echarts-*.js         554.81 kB │ gzip: 184.98 kB
+   ✓ built in 5.50s                                                     （exit=0）✅
+
+2) npm run typecheck
+   tsc --noEmit → 无输出                                        （exit=0）✅
+   （strict + noUnusedLocals/Parameters + noUncheckedIndexedAccess 全开）
+
+3) npm run test（vitest，纯函数）
+   ✓ src/lib/format.test.ts (10 tests) 15ms
+   Test Files 1 passed (1) · Tests 10 passed (10)              （exit=0）✅
+   重点：概率区间格式化——窄区间自动加小数位，绝不把不确定度压成单点或放大
+
+4) npm run smoke（端到端闭环，按前端真实调用顺序打真后端）
+   1) 首屏 Step 1/2：六省规则可读 · 六省都有带来源的科目池（origin=RULE）·
+      浙江 7选3 含「技术」· 天津/海南要求「规则待核实」横幅
+   2) 建档 → resolve-rank：stu-xxxx，missing_fields=[]，位次 17812，带来源与总考生数
+      覆盖率：可报 640/811（真实统计）
+   3) 推荐：60 项 · 每项都有 ±1σ 区间 · evidence 非空且每条带 source_url ·
+      probability=null ⇔ NO_DATA · 默认不返回 TOO_RISKY
+   4) 志愿表：80 个志愿 · 每项带概率区间 · 带院校名索引且每个志愿都能查到名字 ·
+      每项带学费 · 最后一档是保/垫 · 带逐项来源证据 · 风险可重跑
+      分层分布 {"CHONG":7,"WEN":55,"DIAN":18}；风险 35 条（HIGH 4 条）
+   5) 手改：拖拽排序与提交一致 · 移除成功 · **移除的志愿可以加回来**
+   6) 导出：PDF（%PDF 头）· Excel（PK 头）· 免责声明与分层区间均来自后端
+   → 闭环全部通过 ✓                                               （exit=0）✅
+
+5) dev 服务器与代理实测
+   npx vite --port 5173 → GET / 返回应用外壳（含 react-refresh 注入）
+   node -e "fetch('http://127.0.0.1:5173/api/v1/meta/provinces')"
+     → proxy OK, provinces = beijing,hainan,shandong,shanghai,tianjin,zhejiang
+     → zhejiang pool = 7选3                       （Vite proxy /api → 127.0.0.1:8000 生效）✅
+
+6) 后端回归（本轮契约改动后重跑）
+   pytest backend/tests -q --cov=app.core --cov-fail-under=90
+     → 201 passed, 2 warnings in 61.60s
+     → 覆盖率 TOTAL 1552 stmts / 68 miss / 95.62%              （门槛 90% ✅）
+```
+
+**完成定义逐项核对**（AGENTS.md §10 M4）：
+
+- [x] 闭环可走通：建档 → 推荐 → 志愿表 → 导出 PDF（`npm run smoke` 按 UI 的真实调用序列断言）
+- [x] 概率显示为区间：推荐卡片与志愿行都只用 `probability_interval`（±1σ）；
+      单点概率即便存在也**不渲染**；`formatInterval` 有单测守住
+- [x] 每卡片可展开证据链：`EvidenceTable` 展示"哪年/最低分/最低位次/计划数/数据质量/来源链接"，
+      并把类比证据单独分表
+- [x] 风险 HIGH 有阻断提示：志愿表页锁死导出，需显式勾选确认才解锁
+- [x] 报告含免责声明与来源清单：报告页四段（志愿表/每志愿依据/风险/来源清单）+ 免责声明，
+      且打印样式把 URL 展开到纸面
+- [x] 类型从 OpenAPI 生成，无手写重复类型（`src/api/schema.d.ts` 由 `pnpm gen:api` 生成且 gitignore）
+- [x] 首屏就是建档向导（`/` → `/profile`），前 3 步是硬门槛；`missing_fields` 非空时推荐页阻断式拦截
+
+**本轮未做 / 已知限制（诚实披露）**：
+
+- 无浏览器 E2E（Playwright）与视觉回归 → M7；本轮的闭环验证是"按 UI 真实调用序列打真后端"，
+  它能证明契约与数据流正确，**不能**证明像素与交互细节无瑕疵。
+- 意向地区/门类的"软偏好权重"调节只影响排序（`utility`），不进入概率——这是设计如此，不是缺陷；
+  但权重滑块与后端 `weights` 参数的联动尚未做（当前用考生档案里的偏好值）。
+- 志愿表页的"候选池重算"每次 PATCH 都会跑一次完整评估（811 单位量级约 0.3–1s），
+  局域网/本地无感，但不是最终形态（M7 可加缓存或候选池快照落库）。
+- 前端未做国际化、未做移动端专项适配（响应式栅格已可用，但窄屏体验未做专项验收）。
+
+**下一轮起点：M5（Agent 层与防幻觉）** —— `tools.py` / `prompts.py` / `parser.py` /
+`narrator.py` / `guard.py`；20 例幻觉测试编造数必须为 0。
+

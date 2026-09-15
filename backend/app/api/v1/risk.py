@@ -8,14 +8,16 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from app.api.deps import DbDep
-from app.api.schemas import Envelope, RiskScanRequest
+from app.api.schemas import Envelope, RiskScanPayload, RiskScanRequest
 from app.db import repositories as repo
 from app.services import risk_service
 
 router = APIRouter(tags=["risk"])
 
 
-@router.post("/risk/scan", response_model=Envelope[dict], summary="志愿风险速查")
+@router.post(
+    "/risk/scan", response_model=Envelope[RiskScanPayload], summary="志愿风险速查"
+)
 def scan_risks(payload: RiskScanRequest, session: DbDep) -> Envelope[dict]:
     row = repo.get_student(session, payload.student_id)
     if row is None:

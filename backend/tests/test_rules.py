@@ -78,6 +78,50 @@ def test_six_provinces_registered() -> None:
     assert set(RULES) == set(PROVINCES)
 
 
+def test_subject_pool_has_source_discipline() -> None:
+    """选考科目池是**规则事实**（AGENTS.md §8.1 Step 2），与批次同受来源纪律约束。"""
+    for rule in all_rules():
+        pool = rule.subject_pool
+        assert pool is not None, rule.province
+        assert pool.province == rule.province
+        assert pool.choose == 3
+        assert len(pool.subjects) >= pool.choose
+        assert len(set(pool.subjects)) == len(pool.subjects), rule.province
+        assert pool.source_url, rule.province
+        assert pool.source_quote, rule.province
+        assert pool.verified_year is not None, rule.province
+
+
+def test_only_zhejiang_has_technology_subject() -> None:
+    """浙江独有"技术"科目；其余五省 6 选 3，混入"技术"即为错误配置。"""
+    zhejiang = get_rule("zhejiang").subject_pool
+    assert zhejiang is not None and zhejiang.mode == "7选3"
+    assert "技术" in zhejiang.subjects
+    assert len(zhejiang.subjects) == 7
+    for province in ("shanghai", "beijing", "shandong", "tianjin", "hainan"):
+        pool = get_rule(province).subject_pool
+        assert pool is not None and pool.mode == "6选3"
+        assert len(pool.subjects) == 6
+        assert "技术" not in pool.subjects
+        assert "信息技术" not in pool.subjects
+
+
+def test_subject_pool_uses_plan_canonical_names() -> None:
+    """科目名必须与招生计划选考要求字段同口径（统一用"生物"，而非官方行文的"生物学"）。
+
+    官方行文"生物/生物学"并存，硬字符串匹配会漏 → 池内出现的科目必须能直接与
+    ``AdmissionUnit.subject_requirement.subjects`` 比较。
+    """
+    for rule in all_rules():
+        pool = rule.subject_pool
+        assert pool is not None
+        assert "生物学" not in pool.subjects, rule.province
+        assert "生物" in pool.subjects, rule.province
+        assert "政治" not in pool.subjects, rule.province
+        assert "思想政治" in pool.subjects, rule.province
+
+
+
 def test_every_batch_has_source_discipline() -> None:
     """任何规则数字必须带 source_url + source_quote + verified_year，且批次编码唯一。"""
     for rule in all_rules():

@@ -17,11 +17,13 @@
 
 from __future__ import annotations
 
-from app.core.models import BatchRule, UnitType, VerifiedStatus
+from app.core.models import BatchRule, SubjectPool, UnitType, VerifiedStatus
 from app.core.rules.base import StandardProvinceRule
 
 SD_URL_NOTICE = "https://www.sdzk.cn/NewsInfo.aspx?NewsID=5029"
 SD_URL_QA = "https://www.sdzk.cn/NewsInfo.aspx?NewsID=5413"
+#: 选考科目池来源：山东省教育招生考试院《2026年普通高中学业水平等级考试科目选报与高考科目缴费常见问题问答》
+SD_POOL_URL = "https://www.sdzk.cn/NewsInfo.aspx?BCID=20&CID=1117&NewsID=7180"
 
 _QUOTE_REGULAR = (
     "志愿均实行以\"专业（专业类）+学校\"为单位的平行志愿模式，"
@@ -56,3 +58,19 @@ class ShandongRule(StandardProvinceRule):
             ],
         ),
     ]
+
+    #: 3+3 选考科目池（AGENTS.md §8.1 Step 2）：6 选 3。
+    subject_pool = SubjectPool(
+        province="shandong",
+        mode="6选3",
+        choose=3,
+        subjects=["物理", "化学", "生物", "思想政治", "历史", "地理"],
+        source_url=SD_POOL_URL,
+        source_quote="等级考试科目包括思想政治、历史、地理、物理、化学、生物等6个科目。考生从中选择3个科目进行考试。",
+        verified_status=VerifiedStatus.PRIMARY,
+        verified_year=2026,
+        caveats=[
+            "同页另有硬约束：普通高中应届考生所选等级考试科目的学业水平合格考试成绩"
+            "必须达到合格；其他考生\u201c不得多选或少选\u201d",
+        ],
+    )

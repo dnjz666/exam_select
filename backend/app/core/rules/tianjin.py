@@ -15,11 +15,15 @@ M3/M4 必须据此驱动横幅。
 
 from __future__ import annotations
 
-from app.core.models import BatchRule, UnitType, VerifiedStatus
+from app.core.models import BatchRule, SubjectPool, UnitType, VerifiedStatus
 from app.core.rules.base import StandardProvinceRule
 
 TJ_URL = "https://www.eol.cn/kaoshi/gaokao/zytb/202606/t20260615_2745179.shtml"
 TJ_OFFICIAL_URL = "https://zyfz.zhaokao.net"
+#: 选考科目池来源：天津政务网（市政府门户）转市招委《2026年天津市普通高校招生工作规定》
+#: 考试院官网（zhaokao.net）另有页面确认"6 科中选考 3 科"，但未列科目名，故仅作佐证。
+TJ_POOL_URL = "https://www.tj.gov.cn/sy/tjxw/202605/t20260508_7294747.html"
+TJ_POOL_OFFICIAL_URL = "http://www.zhaokao.net/gkck/system/2025/10/14/030009062.shtml"
 
 _ASSUME_SUPPLEMENT = (
     "征询志愿批次的数量来自转载源要点；其志愿性质未逐字核实，按平行志愿框架建模"
@@ -129,3 +133,22 @@ class TianjinRule(StandardProvinceRule):
     ]
 
     official_source_url = TJ_OFFICIAL_URL
+
+    #: 3+3 选考科目池（AGENTS.md §8.1 Step 2）：6 选 3。
+    #: ⚠️ 志愿规则是 SECONDARY（转载源），但科目池来源是政府门户转市招委文件 → PRIMARY-GOV。
+    subject_pool = SubjectPool(
+        province="tianjin",
+        mode="6选3",
+        choose=3,
+        subjects=["物理", "化学", "生物", "思想政治", "历史", "地理"],
+        source_url=TJ_POOL_URL,
+        source_quote="等级性考试科目为思想政治、历史、地理、物理、化学、生物学6门，由考生自主选择其中3门参加考试。",
+        verified_status=VerifiedStatus.PRIMARY_GOV,
+        verified_year=2026,
+        caveats=[
+            "官方原文写\u201c生物学\u201d；本系统统一用\u201c生物\u201d，与招生计划选考要求字段口径一致",
+            "降级理由：科目名取自天津政务网（市政府门户）转述市招委《2026年天津市普通高校招生工作规定》；"
+            f"考试院官网 {TJ_POOL_OFFICIAL_URL} 确认\u201c6 科中选考 3 科\u201d但未列科目名，"
+            "待取工作规定原文后升 PRIMARY",
+        ],
+    )

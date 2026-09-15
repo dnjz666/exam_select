@@ -14,10 +14,14 @@ frontend/node_modules/
 frontend/dist/
 frontend/.vite/
 pnpm-debug.log*
+# pnpm 的 store 落在项目所在盘（C: 的全局 store 与 D: 的项目不同盘时 pnpm 会这样做）
+.pnpm-store/
 
 # ---------- 生成物（禁止进版本库，构建时生成）----------
 # 前端类型由后端 OpenAPI schema 生成，见 AGENTS.md §4.3
 frontend/src/api/schema.d.ts
+# 注意：frontend/openapi.snapshot.json **要**进版本库 —— 它是后端 /openapi.json 的副本，
+# 供 `pnpm gen:api` 在后端未启动时回退使用（否则 `pnpm build` 依赖后端在跑）。
 
 # ---------- 数据 ----------
 data/*.db

@@ -1,0 +1,40 @@
+{
+  "name": "exam-select-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "高考志愿填报智能体 · 前端（L5）。类型唯一来源是后端 OpenAPI schema（AGENTS.md §4.3）。",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "gen:api": "node scripts/gen-api-types.mjs",
+    "predev": "npm run gen:api",
+    "dev": "vite --port 5173 --strictPort",
+    "prebuild": "npm run gen:api",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "smoke": "node scripts/smoke.mjs",
+    "preview": "vite preview --port 4173"
+  },
+  "dependencies": {
+    "echarts": "^5.6.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.30.0",
+    "zustand": "^5.0.3"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "openapi-typescript": "^7.6.1",
+    "postcss": "^8.5.1",
+    "tailwindcss": "^3.4.17",
+    "typescript": "~5.7.3",
+    "vite": "^6.1.0",
+    "vitest": "^3.0.5"
+  }
+}

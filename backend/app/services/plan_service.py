@@ -24,6 +24,7 @@ from app.core.models import (
     unit_key_of,
 )
 from app.core.planner import generate_plan
+from app.core.probability import probability_interval
 from app.core.risk import scan_risks
 from app.core.rules import batch_by_code, get_rule
 from app.db import models as db
@@ -50,6 +51,31 @@ class PlanBundle:
     warnings: list[str] = field(default_factory=list)
     stats: dict = field(default_factory=dict)
     evidence: list[dict] = field(default_factory=list)
+    #: ``college_id -> 院校摘要``：``PlanItem`` 只带 college_id，前端没有院校名就无法阅读志愿表
+    colleges: dict[str, dict] = field(default_factory=dict)
+
+
+def _college_index(session: Session, plan: VolunteerPlan) -> dict[str, dict]:
+    """志愿表用到的院校摘要索引（每条带 ``source_url``，可追溯）。"""
+    needed = {item.unit.college_id for item in plan.items}
+    colleges = repo.load_colleges(session)
+    index: dict[str, dict] = {}
+    for college_id in needed:
+        college = colleges.get(college_id)
+        if college is None:
+            continue
+        index[college_id] = {
+            "id": college.id,
+            "name": college.name,
+            "province": college.province,
+            "city": college.city,
+            "level_tags": list(college.level_tags),
+            "is_public": college.is_public,
+            "college_type": college.college_type,
+            "affiliation": college.affiliation,
+            "source_url": college.source_url,
+        }
+    return index
 
 
 def _scan(
@@ -146,6 +172,7 @@ def generate(
             "violations": [violation.model_dump(mode="json") for violation in plan.violations],
         },
         evidence=_plan_evidence(plan, bundle_in.history),
+        colleges=_college_index(session, plan),
     )
     _persist(session, bundle, plan.model_dump(mode="json"))
     return bundle
@@ -207,6 +234,7 @@ def load(session: Session, plan_id: str) -> PlanBundle:
             "violations": [violation.model_dump(mode="json") for violation in plan.violations],
         },
         evidence=_plan_evidence(plan, repo.load_history(session, plan.province)),
+        colleges=_college_index(session, plan),
     )
 
 
@@ -222,38 +250,66 @@ def patch_items(
     *,
     items: list[dict],
     obey_adjustment: bool | None = None,
+    criteria: FilterCriteria | None = None,
 ) -> PlanBundle:
     """手改志愿表：按给定的 ``[{unit_id, obey_adjustment?}]`` 重排/增删。
 
-    只允许使用该志愿表生成时的候选池（其单位与当时的概率/分层一起存在 payload 里），
-    避免绕过硬约束与证据链。改完立即重算违规与风险。
+    **候选池 = 生成志愿表时的候选池**，由同一套 `evaluate_candidates`（同样的硬约束过滤、
+    同样的概率口径）现场重算，因此：
+
+    - 池内任何单位都能**加回来**（"移除" 不再是不可逆操作——志愿填报工具里这是硬要求）；
+    - 硬约束（选考/体检/语种/单科/批次/学费上限…）一条都绕不过去；
+    - 单位的分层/概率/区间/效用一律取**重算结果**，不会因为手工搬运而与推荐口径不一致。
+
+    改完立即重算违规与风险。
     """
     current = load(session, plan_id)
-    pool = {item.unit.unit_id: item for item in current.plan.items}
-    unknown = [entry["unit_id"] for entry in items if entry["unit_id"] not in pool]
-    if unknown:
-        raise UnknownUnits(unknown)
 
     student_row = repo.get_student(session, current.plan.student_id)
     if student_row is None:
         raise PlanNotFound(f"student:{current.plan.student_id}")
     profile = student_service.require_complete(student_row)
 
+    params = ModelParams()
+    evaluation = recommend_service.evaluate_candidates(
+        session, student_row, criteria=criteria, params=params
+    )
+    # 与 generate 同口径：TOO_RISKY（概率 <0.10）不进志愿表（§6.3）
+    pool = {
+        scored.unit.unit_id: scored
+        for scored, result in evaluation.pairs
+        if result.tier is not Tier.TOO_RISKY
+    }
+    unknown = [entry["unit_id"] for entry in items if entry["unit_id"] not in pool]
+    if unknown:
+        raise UnknownUnits(unknown)
+
     new_items: list[PlanItem] = []
     for index, entry in enumerate(items, start=1):
         source = pool[entry["unit_id"]]
-        chosen = entry.get("obey_adjustment", source.obey_adjustment)
+        chosen = entry.get("obey_adjustment")
+        if chosen is None:
+            previous = next(
+                (item for item in current.plan.items if item.unit.unit_id == entry["unit_id"]), None
+            )
+            chosen = previous.obey_adjustment if previous is not None else None
         if obey_adjustment is not None:
             chosen = obey_adjustment
+        result = source.probability_result
         new_items.append(
             PlanItem(
                 position=index,
                 unit=source.unit,
                 tier=source.tier,
                 probability=source.probability,
+                probability_interval=(
+                    list(interval)
+                    if result is not None and (interval := probability_interval(result, params))
+                    else None
+                ),
                 utility=source.utility,
                 obey_adjustment=chosen,
-                notes=list(source.notes),
+                notes=list(result.reasons[:2]) if result is not None else [],
             )
         )
 
@@ -273,22 +329,15 @@ def patch_items(
         }
     )
 
-    histories = repo.load_history(session, plan.province)
-    units = repo.load_units(session, plan.province, profile.year)
-    majors = repo.load_majors(session)
-    colleges = repo.load_colleges(session)
-    params = ModelParams()
+    # 风险扫描复用同一次评估装载的元数据（group_majors / level_tags），口径与本函数开头一致
     risks = _scan(
         session,
         profile,
         plan,
         params=params,
-        history=histories,
-        total_current=repo.get_province_stats(session, plan.province).get(profile.year),
-        risk_meta={
-            "group_majors": recommend_service._group_majors(units, majors),
-            "level_tags_by_college": {cid: tuple(c.level_tags) for cid, c in colleges.items()},
-        },
+        history=evaluation.history,
+        total_current=evaluation.total_current,
+        risk_meta=evaluation.risk_factory,
     )
 
     bundle = PlanBundle(
@@ -300,6 +349,7 @@ def patch_items(
             "violations": [violation.model_dump(mode="json") for violation in plan.violations],
         },
         evidence=current.evidence,
+        colleges=_college_index(session, plan),
     )
     _persist(session, bundle, plan.model_dump(mode="json"))
     return bundle

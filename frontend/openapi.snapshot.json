@@ -1,0 +1,4586 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "高考志愿填报智能体",
+    "description": "基于位次法的可解释、可回测志愿推荐系统（数据层当前为模拟数据，严禁真实填报）。所有响应含 data / evidence / warnings 三段。",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/v1/meta/provinces": {
+      "get": {
+        "tags": [
+          "meta"
+        ],
+        "summary": "各省规则（含 source_url）",
+        "operationId": "list_provinces_api_v1_meta_provinces_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_list_ProvinceMeta__"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/meta/provinces/{province}/rule": {
+      "get": {
+        "tags": [
+          "meta"
+        ],
+        "summary": "单省规则（批次级）",
+        "operationId": "get_rule_api_v1_meta_provinces__province__rule_get",
+        "parameters": [
+          {
+            "name": "province",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Province"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_ProvinceMeta_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/meta/provinces/{province}/subject-coverage": {
+      "get": {
+        "tags": [
+          "meta"
+        ],
+        "summary": "选考组合的可报专业覆盖率",
+        "description": "首屏 Step 2 的\"实时可报专业覆盖率\"（真实统计，非估算）。\n\n返回的每个数字都来自当年招生计划；``subject_pool.origin`` 标明科目池是\n官方规则（RULE）还是由招生计划反推（DATA_DERIVED）。",
+        "operationId": "get_subject_coverage_api_v1_meta_provinces__province__subject_coverage_get",
+        "parameters": [
+          {
+            "name": "province",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Province"
+            }
+          },
+          {
+            "name": "subjects",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "逗号分隔的选考科目，如 物理,化学,生物",
+              "default": "",
+              "title": "Subjects"
+            },
+            "description": "逗号分隔的选考科目，如 物理,化学,生物"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_SubjectCoveragePayload_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/meta/tiers": {
+      "get": {
+        "tags": [
+          "meta"
+        ],
+        "summary": "分层/配额/安全闸门定义",
+        "operationId": "get_tiers_api_v1_meta_tiers_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_TiersPayload_"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/students": {
+      "post": {
+        "tags": [
+          "students"
+        ],
+        "summary": "创建档案",
+        "operationId": "create_student_api_v1_students_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StudentCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_StudentPayload_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/students/{student_id}": {
+      "get": {
+        "tags": [
+          "students"
+        ],
+        "summary": "读取档案",
+        "operationId": "get_student_api_v1_students__student_id__get",
+        "parameters": [
+          {
+            "name": "student_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Student Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_StudentPayload_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "students"
+        ],
+        "summary": "补全/修改档案",
+        "operationId": "patch_student_api_v1_students__student_id__patch",
+        "parameters": [
+          {
+            "name": "student_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Student Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StudentPatchRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_StudentPayload_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/students/{student_id}/resolve-rank": {
+      "post": {
+        "tags": [
+          "students"
+        ],
+        "summary": "分数 → 位次",
+        "operationId": "resolve_rank_api_v1_students__student_id__resolve_rank_post",
+        "parameters": [
+          {
+            "name": "student_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Student Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_ResolveRankPayload_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/search": {
+      "get": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "院校检索",
+        "operationId": "search_colleges_api_v1_colleges_search_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "院校名模糊匹配",
+              "title": "Q"
+            },
+            "description": "院校名模糊匹配"
+          },
+          {
+            "name": "province",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "院校所在省",
+              "title": "Province"
+            },
+            "description": "院校所在省"
+          },
+          {
+            "name": "level",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "层次标签，如 985 / 211 / 双一流",
+              "title": "Level"
+            },
+            "description": "层次标签，如 985 / 211 / 双一流"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_list_CollegeSearchItem__"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/majors/search": {
+      "get": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "专业检索",
+        "operationId": "search_majors_api_v1_majors_search_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "专业名模糊匹配",
+              "title": "Q"
+            },
+            "description": "专业名模糊匹配"
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "门类，如 工学",
+              "title": "Category"
+            },
+            "description": "门类，如 工学"
+          },
+          {
+            "name": "discipline",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "专业类，如 计算机类",
+              "title": "Discipline"
+            },
+            "description": "专业类，如 计算机类"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 300,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_list_MajorSearchItem__"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/units/{unit_id}/history": {
+      "get": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "投档单位逐年历史",
+        "operationId": "unit_history_api_v1_units__unit_id__history_get",
+        "parameters": [
+          {
+            "name": "unit_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Unit Id"
+            }
+          },
+          {
+            "name": "years",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 10,
+              "minimum": 1,
+              "default": 3,
+              "title": "Years"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_UnitHistoryPayload_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/recommend": {
+      "post": {
+        "tags": [
+          "recommend"
+        ],
+        "summary": "核心推荐",
+        "operationId": "recommend_api_v1_recommend_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecommendRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_RecommendPayload_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plans/generate": {
+      "post": {
+        "tags": [
+          "plans"
+        ],
+        "summary": "生成志愿表",
+        "operationId": "generate_plan_api_v1_plans_generate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlanGenerateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_PlanPayload_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plans/{plan_id}": {
+      "get": {
+        "tags": [
+          "plans"
+        ],
+        "summary": "读取志愿表",
+        "operationId": "get_plan_api_v1_plans__plan_id__get",
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Plan Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_PlanPayload_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plans/{plan_id}/items": {
+      "patch": {
+        "tags": [
+          "plans"
+        ],
+        "summary": "手改志愿表（覆盖式）",
+        "operationId": "patch_items_api_v1_plans__plan_id__items_patch",
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Plan Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlanPatchRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_PlanPayload_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plans/{plan_id}/validate": {
+      "post": {
+        "tags": [
+          "plans"
+        ],
+        "summary": "风险扫描（重跑）",
+        "operationId": "validate_plan_api_v1_plans__plan_id__validate_post",
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Plan Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_PlanPayload_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plans/{plan_id}/export": {
+      "get": {
+        "tags": [
+          "plans"
+        ],
+        "summary": "导出报告（pdf | xlsx）",
+        "operationId": "export_plan_api_v1_plans__plan_id__export_get",
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Plan Id"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(pdf|xlsx)$",
+              "description": "pdf 或 xlsx",
+              "default": "pdf",
+              "title": "Format"
+            },
+            "description": "pdf 或 xlsx"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/risk/scan": {
+      "post": {
+        "tags": [
+          "risk"
+        ],
+        "summary": "志愿风险速查",
+        "operationId": "scan_risks_api_v1_risk_scan_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RiskScanRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_RiskScanPayload_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/chat": {
+      "post": {
+        "tags": [
+          "chat"
+        ],
+        "summary": "对话（SSE 流式）",
+        "operationId": "chat_api_v1_chat_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/chat/{session_id}/history": {
+      "get": {
+        "tags": [
+          "chat"
+        ],
+        "summary": "对话历史",
+        "operationId": "chat_history_api_v1_chat__session_id__history_get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_ChatHistoryPayload_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/backtest/report": {
+      "get": {
+        "tags": [
+          "backtest"
+        ],
+        "summary": "回测报告",
+        "operationId": "backtest_report_api_v1_backtest_report_get",
+        "parameters": [
+          {
+            "name": "province",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "省份代码，如 zhejiang",
+              "title": "Province"
+            },
+            "description": "省份代码，如 zhejiang"
+          },
+          {
+            "name": "year",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "回测目标年，如 2025",
+              "title": "Year"
+            },
+            "description": "回测目标年，如 2025"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_dict_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Health",
+        "description": "健康检查：M0 验收命令依赖此端点返回 {\"status\":\"ok\"}。",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Health Health Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Adjustment": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "delta": {
+            "type": "number",
+            "title": "Delta"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "delta",
+          "reason"
+        ],
+        "title": "Adjustment",
+        "description": "概率修正项（趋势 / 计划数等），每条必须可解释。"
+      },
+      "AdmissionUnit": {
+        "properties": {
+          "unit_id": {
+            "type": "string",
+            "title": "Unit Id"
+          },
+          "unit_type": {
+            "$ref": "#/components/schemas/UnitType"
+          },
+          "province": {
+            "type": "string",
+            "title": "Province"
+          },
+          "year": {
+            "type": "integer",
+            "title": "Year"
+          },
+          "batch": {
+            "type": "string",
+            "title": "Batch"
+          },
+          "college_id": {
+            "type": "string",
+            "title": "College Id"
+          },
+          "group_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Code"
+          },
+          "group_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Name"
+          },
+          "major_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Major Id"
+          },
+          "major_name": {
+            "type": "string",
+            "title": "Major Name",
+            "default": ""
+          },
+          "subject_requirement": {
+            "$ref": "#/components/schemas/SubjectRequirement"
+          },
+          "plan_count": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "title": "Plan Count"
+          },
+          "tuition": {
+            "type": "integer",
+            "title": "Tuition"
+          },
+          "duration": {
+            "type": "integer",
+            "title": "Duration",
+            "default": 4
+          },
+          "campus": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Campus"
+          },
+          "remarks": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remarks"
+          },
+          "gender_limit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gender Limit"
+          },
+          "foreign_language_requirement": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Foreign Language Requirement"
+          },
+          "single_subject_min": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Single Subject Min"
+          },
+          "fresh_graduate_only": {
+            "type": "boolean",
+            "title": "Fresh Graduate Only",
+            "default": false
+          },
+          "political_requirement": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Political Requirement"
+          },
+          "physical_requirements": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Physical Requirements"
+          },
+          "is_withdrawn": {
+            "type": "boolean",
+            "title": "Is Withdrawn",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "unit_id",
+          "unit_type",
+          "province",
+          "year",
+          "batch",
+          "college_id",
+          "plan_count",
+          "tuition"
+        ],
+        "title": "AdmissionUnit",
+        "description": "统一\"投档单位\"抽象（AGENTS.md §5.1）。\n\n浙江/山东（专业+院校）与上海/北京/天津/海南（院校专业组）的差异\n全部由 ``ProvinceRule``/``BatchRule`` 吸收，业务代码不得 if-else 区分。"
+      },
+      "BatchMeta": {
+        "properties": {
+          "batch_code": {
+            "type": "string",
+            "title": "Batch Code"
+          },
+          "batch_name": {
+            "type": "string",
+            "title": "Batch Name"
+          },
+          "unit_type": {
+            "type": "string",
+            "title": "Unit Type"
+          },
+          "max_volunteers": {
+            "type": "integer",
+            "title": "Max Volunteers"
+          },
+          "majors_per_group": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Majors Per Group"
+          },
+          "has_major_adjustment": {
+            "type": "boolean",
+            "title": "Has Major Adjustment",
+            "default": false
+          },
+          "is_parallel": {
+            "type": "boolean",
+            "title": "Is Parallel",
+            "default": true
+          },
+          "tiers_quota": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tiers Quota"
+          },
+          "verified_status": {
+            "$ref": "#/components/schemas/VerifiedStatus",
+            "default": "UNVERIFIED"
+          },
+          "verified_year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verified Year"
+          },
+          "source_url": {
+            "type": "string",
+            "title": "Source Url",
+            "default": ""
+          },
+          "source_quote": {
+            "type": "string",
+            "title": "Source Quote",
+            "default": ""
+          },
+          "assumptions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Assumptions"
+          },
+          "caveats": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Caveats"
+          },
+          "admission_ratio": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Admission Ratio"
+          },
+          "tie_break_rules": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tie Break Rules"
+          },
+          "adjustment_scope": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Adjustment Scope"
+          },
+          "withdrawal_clause": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Withdrawal Clause"
+          },
+          "requires_banner": {
+            "type": "boolean",
+            "title": "Requires Banner",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "batch_code",
+          "batch_name",
+          "unit_type",
+          "max_volunteers"
+        ],
+        "title": "BatchMeta",
+        "description": "批次级规则（含官方原文摘录与核实状态）。"
+      },
+      "ChatHistoryPayload": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/ChatMessage"
+            },
+            "type": "array",
+            "title": "Messages"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id"
+        ],
+        "title": "ChatHistoryPayload"
+      },
+      "ChatMessage": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "student_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Student Id"
+          },
+          "missing_fields": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Missing Fields"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "session_id",
+          "role",
+          "content"
+        ],
+        "title": "ChatMessage",
+        "description": "一条会话消息（M3 存内存；``missing_fields`` / ``note`` 仅 assistant 侧出现）。"
+      },
+      "ChatRequest": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Message"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "student_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Student Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "title": "ChatRequest"
+      },
+      "CollegeBlock": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "province": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Province"
+          },
+          "city": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "City"
+          },
+          "level_tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Level Tags"
+          },
+          "is_public": {
+            "type": "boolean",
+            "title": "Is Public",
+            "default": true
+          },
+          "college_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "College Type"
+          },
+          "affiliation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Affiliation"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "CollegeBlock",
+        "description": "推荐项里的院校摘要（``recommend_service._college_block``）。"
+      },
+      "CollegeSearchItem": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "province": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Province"
+          },
+          "city": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "City"
+          },
+          "level_tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Level Tags"
+          },
+          "college_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "College Type"
+          },
+          "affiliation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Affiliation"
+          },
+          "is_public": {
+            "type": "boolean",
+            "title": "Is Public",
+            "default": true
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "CollegeSearchItem"
+      },
+      "Confidence": {
+        "type": "string",
+        "enum": [
+          "HIGH",
+          "MEDIUM",
+          "LOW",
+          "NO_DATA"
+        ],
+        "title": "Confidence",
+        "description": "置信度分级（AGENTS.md §6.2 Step 8）。"
+      },
+      "DataQuality": {
+        "type": "string",
+        "enum": [
+          "OK",
+          "DERIVED",
+          "MISSING_RANK",
+          "COLLECTED",
+          "SUSPECT"
+        ],
+        "title": "DataQuality",
+        "description": "历史数据质量（DOMAIN_RULES.md §2.2）。\n\n仅 ``OK`` / ``DERIVED`` / ``COLLECTED`` 参与概率计算；\n``MISSING_RANK`` / ``SUSPECT`` 不参与。"
+      },
+      "Envelope_ChatHistoryPayload_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ChatHistoryPayload"
+          },
+          "evidence": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Evidence"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "Envelope[ChatHistoryPayload]"
+      },
+      "Envelope_PlanPayload_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/PlanPayload"
+          },
+          "evidence": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Evidence"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "Envelope[PlanPayload]"
+      },
+      "Envelope_ProvinceMeta_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ProvinceMeta"
+          },
+          "evidence": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Evidence"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "Envelope[ProvinceMeta]"
+      },
+      "Envelope_RecommendPayload_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/RecommendPayload"
+          },
+          "evidence": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Evidence"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "Envelope[RecommendPayload]"
+      },
+      "Envelope_ResolveRankPayload_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ResolveRankPayload"
+          },
+          "evidence": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Evidence"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "Envelope[ResolveRankPayload]"
+      },
+      "Envelope_RiskScanPayload_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/RiskScanPayload"
+          },
+          "evidence": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Evidence"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "Envelope[RiskScanPayload]"
+      },
+      "Envelope_StudentPayload_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/StudentPayload"
+          },
+          "evidence": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Evidence"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "Envelope[StudentPayload]"
+      },
+      "Envelope_SubjectCoveragePayload_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/SubjectCoveragePayload"
+          },
+          "evidence": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Evidence"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "Envelope[SubjectCoveragePayload]"
+      },
+      "Envelope_TiersPayload_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/TiersPayload"
+          },
+          "evidence": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Evidence"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "Envelope[TiersPayload]"
+      },
+      "Envelope_UnitHistoryPayload_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/UnitHistoryPayload"
+          },
+          "evidence": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Evidence"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "Envelope[UnitHistoryPayload]"
+      },
+      "Envelope_dict_": {
+        "properties": {
+          "data": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Data"
+          },
+          "evidence": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Evidence"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "Envelope[dict]"
+      },
+      "Envelope_list_CollegeSearchItem__": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/CollegeSearchItem"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "evidence": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Evidence"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "Envelope[list[CollegeSearchItem]]"
+      },
+      "Envelope_list_MajorSearchItem__": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/MajorSearchItem"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "evidence": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Evidence"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "Envelope[list[MajorSearchItem]]"
+      },
+      "Envelope_list_ProvinceMeta__": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/ProvinceMeta"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "evidence": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Evidence"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "Envelope[list[ProvinceMeta]]"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HistoryEvidence": {
+        "properties": {
+          "year": {
+            "type": "integer",
+            "title": "Year"
+          },
+          "min_rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Rank"
+          },
+          "min_score": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Score"
+          },
+          "plan_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Count"
+          },
+          "data_quality": {
+            "$ref": "#/components/schemas/DataQuality",
+            "default": "OK"
+          },
+          "is_collected": {
+            "type": "boolean",
+            "title": "Is Collected",
+            "default": false
+          },
+          "source_url": {
+            "type": "string",
+            "title": "Source Url",
+            "default": ""
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "year"
+        ],
+        "title": "HistoryEvidence",
+        "description": "历史证据链的一条。前端\"为什么\"展开与 LLM 引用的唯一数据来源。"
+      },
+      "MajorBlock": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "discipline": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Discipline"
+          },
+          "duration": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "MajorBlock",
+        "description": "推荐项里的专业摘要（``recommend_service._major_block``）。"
+      },
+      "MajorSearchItem": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "discipline": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Discipline"
+          },
+          "degree": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Degree"
+          },
+          "duration": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "MajorSearchItem"
+      },
+      "PhysicalExam": {
+        "properties": {
+          "color_blindness": {
+            "type": "boolean",
+            "title": "Color Blindness",
+            "default": false
+          },
+          "color_weakness": {
+            "type": "boolean",
+            "title": "Color Weakness",
+            "default": false
+          },
+          "height_cm": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Height Cm"
+          },
+          "other_restrictions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Other Restrictions"
+          }
+        },
+        "type": "object",
+        "title": "PhysicalExam",
+        "description": "体检结论（硬约束输入，AGENTS.md §5.3 / §6.4 第 4 条）。"
+      },
+      "PlanGenerateRequest": {
+        "properties": {
+          "student_id": {
+            "type": "string",
+            "title": "Student Id"
+          },
+          "filters": {
+            "$ref": "#/components/schemas/RecommendFilters"
+          },
+          "weights": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weights"
+          },
+          "plan_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Id"
+          },
+          "preference_order": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preference Order",
+            "description": "考生意愿序（unit_id 列表）；不填则按冲稳保垫 + 层内效用排序"
+          },
+          "obey_adjustment": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Obey Adjustment",
+            "description": "院校专业组模式是否服从调剂；专业+院校模式忽略"
+          }
+        },
+        "type": "object",
+        "required": [
+          "student_id"
+        ],
+        "title": "PlanGenerateRequest"
+      },
+      "PlanItem": {
+        "properties": {
+          "position": {
+            "type": "integer",
+            "title": "Position"
+          },
+          "unit": {
+            "$ref": "#/components/schemas/AdmissionUnit"
+          },
+          "tier": {
+            "$ref": "#/components/schemas/Tier",
+            "default": "NO_DATA"
+          },
+          "probability": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Probability"
+          },
+          "probability_interval": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Probability Interval"
+          },
+          "utility": {
+            "type": "number",
+            "title": "Utility",
+            "default": 0
+          },
+          "obey_adjustment": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Obey Adjustment"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Notes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "position",
+          "unit"
+        ],
+        "title": "PlanItem",
+        "description": "志愿表中的一项（有序）。"
+      },
+      "PlanItemPatch": {
+        "properties": {
+          "unit_id": {
+            "type": "string",
+            "title": "Unit Id"
+          },
+          "obey_adjustment": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Obey Adjustment"
+          }
+        },
+        "type": "object",
+        "required": [
+          "unit_id"
+        ],
+        "title": "PlanItemPatch"
+      },
+      "PlanPatchRequest": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PlanItemPatch"
+            },
+            "type": "array",
+            "title": "Items",
+            "description": "完整有序志愿列表（覆盖式）"
+          },
+          "obey_adjustment": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Obey Adjustment",
+            "description": "统一设置服从调剂（覆盖逐项值）"
+          },
+          "filters": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecommendFilters"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "生成该志愿表时使用的筛选条件。手改只允许在**同口径重新评估出的候选池**内增删，带上它才能保证「池」与你当初看到的推荐列表完全一致（不带则视为无筛选）。"
+          }
+        },
+        "type": "object",
+        "title": "PlanPatchRequest"
+      },
+      "PlanPayload": {
+        "properties": {
+          "plan": {
+            "$ref": "#/components/schemas/VolunteerPlan"
+          },
+          "risks": {
+            "items": {
+              "$ref": "#/components/schemas/Risk"
+            },
+            "type": "array",
+            "title": "Risks"
+          },
+          "stats": {
+            "$ref": "#/components/schemas/PlanStats"
+          },
+          "colleges": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/CollegeBlock"
+            },
+            "type": "object",
+            "title": "Colleges"
+          }
+        },
+        "type": "object",
+        "required": [
+          "plan"
+        ],
+        "title": "PlanPayload",
+        "description": "``/plans/*`` 的统一响应体：志愿表 + 风险扫描 + 统计 + 院校索引。\n\n``colleges`` 是 ``college_id -> 院校摘要`` 的索引：``PlanItem`` 只带 ``college_id``，\n志愿表页面没有院校名就无法阅读（AGENTS.md §8.2）。索引来自数据库、每条带 ``source_url``，\n不是前端拼的展示数据。"
+      },
+      "PlanStats": {
+        "properties": {
+          "tier_distribution": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Tier Distribution"
+          },
+          "violations": {
+            "items": {
+              "$ref": "#/components/schemas/RuleViolation"
+            },
+            "type": "array",
+            "title": "Violations"
+          },
+          "candidates_evaluated": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidates Evaluated"
+          },
+          "excluded_too_risky": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Excluded Too Risky"
+          },
+          "no_data_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "No Data Count"
+          },
+          "data_coverage": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Coverage"
+          }
+        },
+        "type": "object",
+        "title": "PlanStats",
+        "description": "志愿表统计：``generate`` 给全量，``load``/``validate`` 只给后两项。"
+      },
+      "Preferences": {
+        "properties": {
+          "intended_regions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Intended Regions"
+          },
+          "intended_major_categories": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Intended Major Categories"
+          },
+          "excluded_majors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Excluded Majors"
+          },
+          "budget_comfortable": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Budget Comfortable"
+          },
+          "budget_max": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Budget Max"
+          },
+          "weight_region": {
+            "type": "number",
+            "title": "Weight Region",
+            "default": 0.16666666666666666
+          },
+          "weight_college_level": {
+            "type": "number",
+            "title": "Weight College Level",
+            "default": 0.16666666666666666
+          },
+          "weight_major": {
+            "type": "number",
+            "title": "Weight Major",
+            "default": 0.16666666666666666
+          },
+          "weight_tuition": {
+            "type": "number",
+            "title": "Weight Tuition",
+            "default": 0.16666666666666666
+          },
+          "weight_city": {
+            "type": "number",
+            "title": "Weight City",
+            "default": 0.16666666666666666
+          },
+          "weight_misc": {
+            "type": "number",
+            "title": "Weight Misc",
+            "default": 0.16666666666666666
+          }
+        },
+        "type": "object",
+        "title": "Preferences",
+        "description": "偏好（软约束输入，AGENTS.md §6.5）。\n\n权重默认等权（各 1/6，归一化到 1.0，§6.5 \"默认等权\"），由考生在 UI 调整。"
+      },
+      "ProvinceMeta": {
+        "properties": {
+          "province": {
+            "type": "string",
+            "title": "Province"
+          },
+          "main_batch_code": {
+            "type": "string",
+            "title": "Main Batch Code"
+          },
+          "current_year": {
+            "type": "integer",
+            "title": "Current Year",
+            "default": 2026
+          },
+          "subject_pool": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SubjectPoolMeta"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "batches": {
+            "items": {
+              "$ref": "#/components/schemas/BatchMeta"
+            },
+            "type": "array",
+            "title": "Batches"
+          },
+          "requires_banner": {
+            "type": "boolean",
+            "title": "Requires Banner",
+            "default": false
+          },
+          "has_caution": {
+            "type": "boolean",
+            "title": "Has Caution",
+            "default": false
+          },
+          "source_problems": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Source Problems"
+          }
+        },
+        "type": "object",
+        "required": [
+          "province",
+          "main_batch_code"
+        ],
+        "title": "ProvinceMeta",
+        "description": "``GET /meta/provinces`` 的单省条目。"
+      },
+      "ProvinceRuleInfo": {
+        "properties": {
+          "province": {
+            "type": "string",
+            "title": "Province"
+          },
+          "batch_code": {
+            "type": "string",
+            "title": "Batch Code"
+          },
+          "batch_name": {
+            "type": "string",
+            "title": "Batch Name"
+          },
+          "unit_type": {
+            "$ref": "#/components/schemas/UnitType"
+          },
+          "max_volunteers": {
+            "type": "integer",
+            "title": "Max Volunteers"
+          },
+          "majors_per_group": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Majors Per Group"
+          },
+          "has_major_adjustment": {
+            "type": "boolean",
+            "title": "Has Major Adjustment",
+            "default": false
+          },
+          "is_parallel": {
+            "type": "boolean",
+            "title": "Is Parallel",
+            "default": true
+          },
+          "verified_status": {
+            "$ref": "#/components/schemas/VerifiedStatus",
+            "default": "UNVERIFIED"
+          },
+          "verified_year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verified Year"
+          },
+          "source_url": {
+            "type": "string",
+            "title": "Source Url",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "province",
+          "batch_code",
+          "batch_name",
+          "unit_type",
+          "max_volunteers"
+        ],
+        "title": "ProvinceRuleInfo",
+        "description": "志愿表落库/展示用的规则快照（批次级，ADR-006）。"
+      },
+      "RecommendFilters": {
+        "properties": {
+          "regions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Regions"
+          },
+          "majors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Majors"
+          },
+          "levels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Levels"
+          },
+          "tuition_max": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tuition Max"
+          },
+          "exclude_unit_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Exclude Unit Ids"
+          },
+          "intent_as_hard": {
+            "type": "boolean",
+            "title": "Intent As Hard",
+            "description": "是否把意向省份/层次/门类当硬约束（默认 False：意向属软偏好 §6.5）",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "RecommendFilters",
+        "description": "与 §7 的 ``filters:{regions,majors,levels,tuition_max}`` 对应。"
+      },
+      "RecommendItem": {
+        "properties": {
+          "unit": {
+            "$ref": "#/components/schemas/AdmissionUnit"
+          },
+          "college": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CollegeBlock"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "major": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MajorBlock"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "probability": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Probability"
+          },
+          "probability_interval": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Probability Interval"
+          },
+          "tier": {
+            "$ref": "#/components/schemas/Tier",
+            "default": "NO_DATA"
+          },
+          "confidence": {
+            "$ref": "#/components/schemas/Confidence",
+            "default": "NO_DATA"
+          },
+          "utility": {
+            "type": "number",
+            "title": "Utility",
+            "default": 0
+          },
+          "score_breakdown": {
+            "$ref": "#/components/schemas/ScoreBreakdown"
+          },
+          "predicted_min_rank": {
+            "type": "number",
+            "title": "Predicted Min Rank",
+            "default": 0
+          },
+          "sigma": {
+            "type": "number",
+            "title": "Sigma",
+            "default": 0
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/HistoryEvidence"
+            },
+            "type": "array",
+            "title": "Evidence"
+          },
+          "adjustments": {
+            "items": {
+              "$ref": "#/components/schemas/Adjustment"
+            },
+            "type": "array",
+            "title": "Adjustments"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Reasons"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "unit"
+        ],
+        "title": "RecommendItem",
+        "description": "单个推荐项（AGENTS.md §7 + §8）。\n\n``probability`` 为 ``None`` 时 ``confidence`` 必须为 ``NO_DATA`` 且 ``reasons`` 说明原因\n（契约铁律 2）；``evidence`` **必须非空**且每条带 ``source_url``（契约铁律 1）。"
+      },
+      "RecommendPayload": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RecommendItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "stats": {
+            "$ref": "#/components/schemas/RecommendStats"
+          }
+        },
+        "type": "object",
+        "title": "RecommendPayload"
+      },
+      "RecommendRequest": {
+        "properties": {
+          "student_id": {
+            "type": "string",
+            "title": "Student Id"
+          },
+          "filters": {
+            "$ref": "#/components/schemas/RecommendFilters"
+          },
+          "weights": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weights"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 500,
+            "minimum": 1,
+            "title": "Limit",
+            "default": 60
+          },
+          "include_too_risky": {
+            "type": "boolean",
+            "title": "Include Too Risky",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "student_id"
+        ],
+        "title": "RecommendRequest"
+      },
+      "RecommendStats": {
+        "properties": {
+          "units_considered": {
+            "type": "integer",
+            "title": "Units Considered",
+            "default": 0
+          },
+          "hard_filtered_out": {
+            "type": "integer",
+            "title": "Hard Filtered Out",
+            "default": 0
+          },
+          "filtered_out_reasons": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Filtered Out Reasons"
+          },
+          "evaluated_count": {
+            "type": "integer",
+            "title": "Evaluated Count",
+            "default": 0
+          },
+          "no_data_count": {
+            "type": "integer",
+            "title": "No Data Count",
+            "default": 0
+          },
+          "no_evidence_count": {
+            "type": "integer",
+            "title": "No Evidence Count",
+            "default": 0
+          },
+          "data_coverage": {
+            "type": "number",
+            "title": "Data Coverage",
+            "default": 0
+          },
+          "tier_distribution": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Tier Distribution"
+          },
+          "tier_distribution_all": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Tier Distribution All"
+          },
+          "returned": {
+            "type": "integer",
+            "title": "Returned",
+            "default": 0
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit",
+            "default": 60
+          },
+          "include_too_risky": {
+            "type": "boolean",
+            "title": "Include Too Risky",
+            "default": false
+          },
+          "rule": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RuleBlock"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "title": "RecommendStats",
+        "description": "推荐统计（tier 分布、过滤统计、数据覆盖率、所用批次规则）。"
+      },
+      "ResolveRankPayload": {
+        "properties": {
+          "student_id": {
+            "type": "string",
+            "title": "Student Id"
+          },
+          "total_score": {
+            "type": "integer",
+            "title": "Total Score"
+          },
+          "rank": {
+            "type": "integer",
+            "title": "Rank"
+          },
+          "total_candidates": {
+            "type": "integer",
+            "title": "Total Candidates"
+          },
+          "percentile": {
+            "type": "number",
+            "title": "Percentile"
+          },
+          "score_range": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Score Range"
+          },
+          "equivalent_scores": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Equivalent Scores"
+          },
+          "source_url": {
+            "type": "string",
+            "title": "Source Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "student_id",
+          "total_score",
+          "rank",
+          "total_candidates",
+          "percentile",
+          "source_url"
+        ],
+        "title": "ResolveRankPayload",
+        "description": "分数 → 位次换算结果（§8.1 Step 3：必须能显示完整溯源）。"
+      },
+      "Risk": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "level": {
+            "$ref": "#/components/schemas/RiskLevel"
+          },
+          "unit_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Id"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "suggestion": {
+            "type": "string",
+            "title": "Suggestion"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "level",
+          "message",
+          "suggestion"
+        ],
+        "title": "Risk",
+        "description": "风险项（AGENTS.md §6.8）：每个风险必须给出可执行建议。"
+      },
+      "RiskLevel": {
+        "type": "string",
+        "enum": [
+          "HIGH",
+          "MEDIUM",
+          "LOW"
+        ],
+        "title": "RiskLevel",
+        "description": "风险等级（AGENTS.md §6.8）；HIGH 级在 UI 必须阻断式提示。"
+      },
+      "RiskScanPayload": {
+        "properties": {
+          "risks": {
+            "items": {
+              "$ref": "#/components/schemas/Risk"
+            },
+            "type": "array",
+            "title": "Risks"
+          },
+          "scanned": {
+            "type": "integer",
+            "title": "Scanned",
+            "default": 0
+          },
+          "by_level": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "By Level"
+          }
+        },
+        "type": "object",
+        "title": "RiskScanPayload"
+      },
+      "RiskScanRequest": {
+        "properties": {
+          "student_id": {
+            "type": "string",
+            "title": "Student Id"
+          },
+          "unit_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Unit Ids"
+          },
+          "obey_adjustment": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Obey Adjustment"
+          },
+          "obey_adjustment_map": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "boolean"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Obey Adjustment Map"
+          }
+        },
+        "type": "object",
+        "required": [
+          "student_id",
+          "unit_ids"
+        ],
+        "title": "RiskScanRequest"
+      },
+      "RuleBlock": {
+        "properties": {
+          "province": {
+            "type": "string",
+            "title": "Province"
+          },
+          "batch_code": {
+            "type": "string",
+            "title": "Batch Code"
+          },
+          "batch_name": {
+            "type": "string",
+            "title": "Batch Name"
+          },
+          "unit_type": {
+            "type": "string",
+            "title": "Unit Type"
+          },
+          "max_volunteers": {
+            "type": "integer",
+            "title": "Max Volunteers"
+          },
+          "has_major_adjustment": {
+            "type": "boolean",
+            "title": "Has Major Adjustment"
+          },
+          "is_parallel": {
+            "type": "boolean",
+            "title": "Is Parallel"
+          },
+          "majors_per_group": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Majors Per Group"
+          },
+          "verified_status": {
+            "$ref": "#/components/schemas/VerifiedStatus"
+          },
+          "verified_year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verified Year"
+          },
+          "source_url": {
+            "type": "string",
+            "title": "Source Url"
+          },
+          "requires_banner": {
+            "type": "boolean",
+            "title": "Requires Banner"
+          }
+        },
+        "type": "object",
+        "required": [
+          "province",
+          "batch_code",
+          "batch_name",
+          "unit_type",
+          "max_volunteers",
+          "has_major_adjustment",
+          "is_parallel",
+          "verified_status",
+          "source_url",
+          "requires_banner"
+        ],
+        "title": "RuleBlock",
+        "description": "推荐/志愿表所依据的批次规则快照（含核实状态，供 UI 横幅）。"
+      },
+      "RuleViolation": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "unit_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Id"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "RuleViolation",
+        "description": "规则校验违规（``BatchRule.validate_plan`` 输出）。"
+      },
+      "SafetyGateMeta": {
+        "properties": {
+          "rule": {
+            "type": "string",
+            "title": "Rule"
+          },
+          "affects": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Affects"
+          },
+          "downgrade_to": {
+            "type": "string",
+            "title": "Downgrade To",
+            "default": ""
+          },
+          "warning_code": {
+            "type": "string",
+            "title": "Warning Code",
+            "default": ""
+          },
+          "note": {
+            "type": "string",
+            "title": "Note",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "rule"
+        ],
+        "title": "SafetyGateMeta"
+      },
+      "ScoreBreakdown": {
+        "properties": {
+          "region_score": {
+            "type": "number",
+            "title": "Region Score",
+            "default": 0
+          },
+          "college_level_score": {
+            "type": "number",
+            "title": "College Level Score",
+            "default": 0
+          },
+          "major_match_score": {
+            "type": "number",
+            "title": "Major Match Score",
+            "default": 0
+          },
+          "tuition_score": {
+            "type": "number",
+            "title": "Tuition Score",
+            "default": 0
+          },
+          "city_score": {
+            "type": "number",
+            "title": "City Score",
+            "default": 0
+          },
+          "misc_score": {
+            "type": "number",
+            "title": "Misc Score",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "ScoreBreakdown",
+        "description": "软偏好各项得分，每项 [0,1]，可追溯（DOMAIN_RULES.md §5）。"
+      },
+      "StudentCreateRequest": {
+        "properties": {
+          "province": {
+            "type": "string",
+            "title": "Province"
+          },
+          "year": {
+            "type": "integer",
+            "title": "Year",
+            "default": 2026
+          },
+          "track": {
+            "type": "string",
+            "title": "Track",
+            "default": "综合"
+          },
+          "subjects": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Subjects"
+          },
+          "total_score": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Score"
+          },
+          "rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank"
+          },
+          "gender": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gender"
+          },
+          "is_fresh_graduate": {
+            "type": "boolean",
+            "title": "Is Fresh Graduate",
+            "default": true
+          },
+          "political_status": {
+            "type": "string",
+            "title": "Political Status",
+            "default": "群众"
+          },
+          "foreign_language": {
+            "type": "string",
+            "title": "Foreign Language",
+            "default": "英语"
+          },
+          "single_subject_scores": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Single Subject Scores"
+          },
+          "physical_exam": {
+            "$ref": "#/components/schemas/PhysicalExam"
+          },
+          "bonus_points": {
+            "type": "integer",
+            "title": "Bonus Points",
+            "default": 0
+          },
+          "bonus_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bonus Type"
+          },
+          "preferences": {
+            "$ref": "#/components/schemas/Preferences"
+          }
+        },
+        "type": "object",
+        "required": [
+          "province"
+        ],
+        "title": "StudentCreateRequest",
+        "description": "建档（允许草稿态：缺的字段会在响应 ``missing_fields`` 里给出）。"
+      },
+      "StudentPatchRequest": {
+        "properties": {
+          "province": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Province"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year"
+          },
+          "track": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Track"
+          },
+          "subjects": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subjects"
+          },
+          "total_score": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Score"
+          },
+          "rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank"
+          },
+          "gender": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gender"
+          },
+          "is_fresh_graduate": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Fresh Graduate"
+          },
+          "political_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Political Status"
+          },
+          "foreign_language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Foreign Language"
+          },
+          "single_subject_scores": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Single Subject Scores"
+          },
+          "physical_exam": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PhysicalExam"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "bonus_points": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bonus Points"
+          },
+          "bonus_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bonus Type"
+          },
+          "preferences": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Preferences"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "title": "StudentPatchRequest",
+        "description": "增量补全（只提交要改的字段；未提交字段保持原值）。"
+      },
+      "StudentPayload": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "province": {
+            "type": "string",
+            "title": "Province"
+          },
+          "year": {
+            "type": "integer",
+            "title": "Year"
+          },
+          "track": {
+            "type": "string",
+            "title": "Track",
+            "default": "综合"
+          },
+          "subjects": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Subjects"
+          },
+          "total_score": {
+            "type": "integer",
+            "title": "Total Score",
+            "default": 0
+          },
+          "rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank"
+          },
+          "gender": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gender"
+          },
+          "is_fresh_graduate": {
+            "type": "boolean",
+            "title": "Is Fresh Graduate",
+            "default": true
+          },
+          "political_status": {
+            "type": "string",
+            "title": "Political Status",
+            "default": "群众"
+          },
+          "foreign_language": {
+            "type": "string",
+            "title": "Foreign Language",
+            "default": "英语"
+          },
+          "single_subject_scores": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Single Subject Scores"
+          },
+          "physical_exam": {
+            "$ref": "#/components/schemas/PhysicalExam"
+          },
+          "bonus_points": {
+            "type": "integer",
+            "title": "Bonus Points",
+            "default": 0
+          },
+          "bonus_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bonus Type"
+          },
+          "preferences": {
+            "$ref": "#/components/schemas/Preferences"
+          },
+          "missing_fields": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Missing Fields"
+          },
+          "rank_source_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank Source Url"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "province",
+          "year"
+        ],
+        "title": "StudentPayload",
+        "description": "考生档案（含 ``missing_fields``，前端据此阻止进入推荐，§8.1）。"
+      },
+      "SubjectCoveragePayload": {
+        "properties": {
+          "province": {
+            "type": "string",
+            "title": "Province"
+          },
+          "year": {
+            "type": "integer",
+            "title": "Year"
+          },
+          "batch_code": {
+            "type": "string",
+            "title": "Batch Code"
+          },
+          "subjects": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Subjects"
+          },
+          "total_units": {
+            "type": "integer",
+            "title": "Total Units",
+            "default": 0
+          },
+          "matched_units": {
+            "type": "integer",
+            "title": "Matched Units",
+            "default": 0
+          },
+          "coverage": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coverage"
+          },
+          "subject_pool": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SubjectPoolMeta"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "by_subject": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "By Subject"
+          },
+          "unmatched_examples": {
+            "items": {
+              "$ref": "#/components/schemas/UnmatchedUnit"
+            },
+            "type": "array",
+            "title": "Unmatched Examples"
+          },
+          "source_url": {
+            "type": "string",
+            "title": "Source Url",
+            "default": ""
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "province",
+          "year",
+          "batch_code"
+        ],
+        "title": "SubjectCoveragePayload",
+        "description": "选考组合的可报专业覆盖率（真实统计，非估算）。"
+      },
+      "SubjectPoolMeta": {
+        "properties": {
+          "province": {
+            "type": "string",
+            "title": "Province"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mode"
+          },
+          "choose": {
+            "type": "integer",
+            "title": "Choose",
+            "default": 3
+          },
+          "subjects": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Subjects"
+          },
+          "source_url": {
+            "type": "string",
+            "title": "Source Url",
+            "default": ""
+          },
+          "source_quote": {
+            "type": "string",
+            "title": "Source Quote",
+            "default": ""
+          },
+          "verified_status": {
+            "$ref": "#/components/schemas/VerifiedStatus",
+            "default": "UNVERIFIED"
+          },
+          "verified_year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verified Year"
+          },
+          "caveats": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Caveats"
+          },
+          "origin": {
+            "type": "string",
+            "title": "Origin",
+            "default": "RULE"
+          },
+          "requires_caution": {
+            "type": "boolean",
+            "title": "Requires Caution",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "province"
+        ],
+        "title": "SubjectPoolMeta",
+        "description": "省份选考科目池（AGENTS.md §8.1 Step 2）。\n\n``origin=\"RULE\"`` = 官方来源的规则事实；``origin=\"DATA_DERIVED\"`` = 未核实到原文时\n由招生计划反推的降级视图（``requires_caution=True``，前端必须提示，不得当成官方科目池）。"
+      },
+      "SubjectReqMode": {
+        "type": "string",
+        "enum": [
+          "all_of",
+          "any_of",
+          "none"
+        ],
+        "title": "SubjectReqMode",
+        "description": "选考科目要求编码（DOMAIN_RULES.md §2.4）。"
+      },
+      "SubjectRequirement": {
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/SubjectReqMode",
+            "default": "none"
+          },
+          "subjects": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Subjects"
+          }
+        },
+        "type": "object",
+        "title": "SubjectRequirement",
+        "description": "选考科目要求（DOMAIN_RULES.md §2.4）。\n\n3+3 模式下考生恰好 3 门选考，判定为集合关系；\n解析失败的原始文本必须标记 ``PARSE_FAILED`` 并拒绝入库（AGENTS.md §5.2）。"
+      },
+      "Tier": {
+        "type": "string",
+        "enum": [
+          "CHONG",
+          "WEN",
+          "BAO",
+          "DIAN",
+          "TOO_RISKY",
+          "NO_DATA"
+        ],
+        "title": "Tier",
+        "description": "冲稳保分层（AGENTS.md §6.3）。\n\n概率区间由 ``ModelParams.tier_bounds`` 定义；``NO_DATA`` 表示无可用历史，\n``probability`` 必须为 ``None``，且**不参与志愿表生成**。"
+      },
+      "TierMeta": {
+        "properties": {
+          "tier": {
+            "type": "string",
+            "title": "Tier"
+          },
+          "low": {
+            "type": "number",
+            "title": "Low"
+          },
+          "high": {
+            "type": "number",
+            "title": "High"
+          },
+          "meaning": {
+            "type": "string",
+            "title": "Meaning",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "tier",
+          "low",
+          "high"
+        ],
+        "title": "TierMeta"
+      },
+      "TiersPayload": {
+        "properties": {
+          "tiers": {
+            "items": {
+              "$ref": "#/components/schemas/TierMeta"
+            },
+            "type": "array",
+            "title": "Tiers"
+          },
+          "quota": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Quota"
+          },
+          "safety_margin": {
+            "type": "number",
+            "title": "Safety Margin",
+            "default": 0
+          },
+          "safety_gate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SafetyGateMeta"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "probability_interval": {
+            "type": "string",
+            "title": "Probability Interval",
+            "default": ""
+          },
+          "disclaimer": {
+            "type": "string",
+            "title": "Disclaimer",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "TiersPayload",
+        "description": "分层区间、默认配额、安全闸门（前端色带与文案的唯一来源）。"
+      },
+      "UnitHistoryPayload": {
+        "properties": {
+          "unit_id": {
+            "type": "string",
+            "title": "Unit Id"
+          },
+          "unit_key": {
+            "type": "string",
+            "title": "Unit Key"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdmissionUnit"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "records": {
+            "items": {
+              "$ref": "#/components/schemas/UnitHistoryRecord"
+            },
+            "type": "array",
+            "title": "Records"
+          }
+        },
+        "type": "object",
+        "required": [
+          "unit_id",
+          "unit_key"
+        ],
+        "title": "UnitHistoryPayload"
+      },
+      "UnitHistoryRecord": {
+        "properties": {
+          "year": {
+            "type": "integer",
+            "title": "Year"
+          },
+          "min_score": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Score"
+          },
+          "min_rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Rank"
+          },
+          "avg_score": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Score"
+          },
+          "avg_rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Rank"
+          },
+          "plan_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Count"
+          },
+          "admitted_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Admitted Count"
+          },
+          "is_collected": {
+            "type": "boolean",
+            "title": "Is Collected",
+            "default": false
+          },
+          "data_quality": {
+            "type": "string",
+            "title": "Data Quality",
+            "default": "OK"
+          },
+          "total_candidates": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Candidates"
+          },
+          "source_url": {
+            "type": "string",
+            "title": "Source Url",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "year"
+        ],
+        "title": "UnitHistoryRecord"
+      },
+      "UnitType": {
+        "type": "string",
+        "enum": [
+          "MAJOR_COLLEGE",
+          "MAJOR_GROUP"
+        ],
+        "title": "UnitType",
+        "description": "投档单位类型（AGENTS.md §2.1）。"
+      },
+      "UnmatchedUnit": {
+        "properties": {
+          "unit_id": {
+            "type": "string",
+            "title": "Unit Id"
+          },
+          "college_id": {
+            "type": "string",
+            "title": "College Id"
+          },
+          "major_name": {
+            "type": "string",
+            "title": "Major Name"
+          },
+          "requirement_mode": {
+            "type": "string",
+            "title": "Requirement Mode"
+          },
+          "requirement_subjects": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Requirement Subjects"
+          }
+        },
+        "type": "object",
+        "required": [
+          "unit_id",
+          "college_id",
+          "major_name",
+          "requirement_mode"
+        ],
+        "title": "UnmatchedUnit",
+        "description": "覆盖率统计里\"因选考不匹配被排除\"的示例单位。"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "VerifiedStatus": {
+        "type": "string",
+        "enum": [
+          "PRIMARY",
+          "PRIMARY_GOV",
+          "SECONDARY",
+          "UNVERIFIED"
+        ],
+        "title": "VerifiedStatus",
+        "description": "规则核实等级（DOMAIN_RULES.md §1.2 / DECISIONS.md ADR-005）。"
+      },
+      "VolunteerPlan": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "student_id": {
+            "type": "string",
+            "title": "Student Id"
+          },
+          "province": {
+            "type": "string",
+            "title": "Province"
+          },
+          "rule": {
+            "$ref": "#/components/schemas/ProvinceRuleInfo"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PlanItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "tier_distribution": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Tier Distribution"
+          },
+          "total_utility": {
+            "type": "number",
+            "title": "Total Utility",
+            "default": 0
+          },
+          "violations": {
+            "items": {
+              "$ref": "#/components/schemas/RuleViolation"
+            },
+            "type": "array",
+            "title": "Violations"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "student_id",
+          "province",
+          "rule",
+          "items"
+        ],
+        "title": "VolunteerPlan",
+        "description": "完整志愿表（AGENTS.md §6.7 输出）。"
+      }
+    }
+  }
+}

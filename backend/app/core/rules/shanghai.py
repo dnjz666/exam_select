@@ -11,10 +11,12 @@
 
 from __future__ import annotations
 
-from app.core.models import BatchRule, UnitType, VerifiedStatus
+from app.core.models import BatchRule, SubjectPool, UnitType, VerifiedStatus
 from app.core.rules.base import StandardProvinceRule
 
 SH_URL = "https://www.shmeea.edu.cn/page/08000/20260402/20157.html"
+#: 选考科目池来源：上海市教育考试院 2026 年学业水平考试报名通知
+SH_POOL_URL = "https://www.shmeea.edu.cn/page/06300/20260316/20108.html"
 
 _QUOTE_REGULAR = (
     "（7）本科普通批次设置24个平行志愿。"
@@ -116,3 +118,23 @@ class ShanghaiRule(StandardProvinceRule):
             assumptions=[_ASSUME_RECORD_ONLY],
         ),
     ]
+
+    #: 3+3 选考科目池（AGENTS.md §8.1 Step 2）：6 选 3，无"技术"。
+    subject_pool = SubjectPool(
+        province="shanghai",
+        mode="6选3",
+        choose=3,
+        subjects=["物理", "化学", "生物", "思想政治", "历史", "地理"],
+        source_url=SH_POOL_URL,
+        source_quote=(
+            "5月等级性考试设思想政治、历史、地理、物理、化学、生物学6门科目。"
+            "考生可根据高校招生要求和自身兴趣特长，在6门等级性考试科目中自主选择3门参加考试。"
+        ),
+        verified_status=VerifiedStatus.PRIMARY,
+        verified_year=2026,
+        caveats=[
+            "官方原文写\u201c生物学\u201d；本系统统一用\u201c生物\u201d，与招生计划选考要求字段口径一致",
+            "上海 6 月合格性考试含\u201c信息技术\u201d等 7 门，但信息技术**不在**等级考选考池内，"
+            "切勿与浙江\u201c技术\u201d混淆",
+        ],
+    )

@@ -1,0 +1,10 @@
+# pnpm 11 起，依赖构建脚本白名单由本文件管理（不再是 package.json 的 "pnpm" 字段）。
+#
+# esbuild 设为 false（**显式不允许**执行其 postinstall）：
+#   Vite 需要的是 esbuild 的原生二进制，而该二进制由可选依赖
+#   `@esbuild/win32-x64` 直接提供，postinstall 只是"二进制缺失时的兜底下载 +
+#   校验"，在依赖完整时并非必需。显式关闭可避免在受限环境（无法 spawn 子进程的
+#   沙箱）里让 `pnpm install` 因 EPERM 失败，同时符合供应链最小权限。
+# 如遇 esbuild 报 "Cannot find the binary"，把它改回 true 再 `pnpm install` 即可。
+allowBuilds:
+  esbuild: false

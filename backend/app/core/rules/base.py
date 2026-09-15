@@ -22,6 +22,7 @@ from app.core.models import (
     ModelParams,
     ProvinceRuleInfo,
     RuleViolation,
+    SubjectPool,
     Tier,
     VolunteerPlan,
 )
@@ -94,6 +95,9 @@ class ProvinceRule(ABC):
     batches: list[BatchRule]
     #: 主批次（本科普通批 / 专业平行志愿主批次）：默认推荐与志愿表以此为基准
     main_batch_code: str
+    #: 3+3 选考科目池（省级规则事实，AGENTS.md §8.1 Step 2）。
+    #: ``None`` = 未核实到官方原文 → meta 接口降级为「招生计划反推」并明确标注，绝不编造。
+    subject_pool: SubjectPool | None = None
 
     # ---- 查询 ----
     def get_batch(self, batch_code: str) -> BatchRule:
@@ -154,6 +158,27 @@ class ProvinceRule(ABC):
                 problems.append(f"{b.batch_code}: 有专业调剂却非院校专业组模式")
             if not b.has_major_adjustment and b.majors_per_group is not None:
                 problems.append(f"{b.batch_code}: 无调剂概念却声明了组内专业数")
+        problems.extend(self._subject_pool_problems())
+        return problems
+
+    def _subject_pool_problems(self) -> list[str]:
+        """选考科目池的来源纪律自检（省级规则事实，与批次同口径）。"""
+        pool = self.subject_pool
+        if pool is None:
+            return []  # 未核实 = 允许缺省；meta 接口会降级为「招生计划反推」并标注
+        problems: list[str] = []
+        if pool.province != self.province:
+            problems.append(f"subject_pool: province={pool.province} 与规则 {self.province} 不符")
+        if not pool.source_url:
+            problems.append("subject_pool: 缺 source_url")
+        if not pool.source_quote:
+            problems.append("subject_pool: 缺 source_quote（官方原文摘录）")
+        if pool.verified_year is None:
+            problems.append("subject_pool: 缺 verified_year")
+        if len(pool.subjects) < pool.choose:
+            problems.append("subject_pool: 科目数少于需选门数")
+        if len(set(pool.subjects)) != len(pool.subjects):
+            problems.append("subject_pool: 科目名重复")
         return problems
 
     # ---- 校验与配额（省份可覆写）----

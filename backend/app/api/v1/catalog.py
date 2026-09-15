@@ -12,14 +12,19 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query
 
 from app.api.deps import DbDep
-from app.api.schemas import Envelope
+from app.api.schemas import (
+    CollegeSearchItem,
+    Envelope,
+    MajorSearchItem,
+    UnitHistoryPayload,
+)
 from app.core.models import unit_key_of
 from app.db import repositories as repo
 
 router = APIRouter(tags=["catalog"])
 
 
-@router.get("/colleges/search", response_model=Envelope[list[dict]], summary="院校检索")
+@router.get("/colleges/search", response_model=Envelope[list[CollegeSearchItem]], summary="院校检索")
 def search_colleges(
     session: DbDep,
     q: str | None = Query(default=None, description="院校名模糊匹配"),
@@ -56,7 +61,7 @@ def search_colleges(
     return Envelope[list[dict]](data=items, evidence=evidence, warnings=warnings)
 
 
-@router.get("/majors/search", response_model=Envelope[list[dict]], summary="专业检索")
+@router.get("/majors/search", response_model=Envelope[list[MajorSearchItem]], summary="专业检索")
 def search_majors(
     session: DbDep,
     q: str | None = Query(default=None, description="专业名模糊匹配"),
@@ -91,7 +96,7 @@ def search_majors(
     return Envelope[list[dict]](data=items, evidence=evidence, warnings=warnings)
 
 
-@router.get("/units/{unit_id}/history", response_model=Envelope[dict], summary="投档单位逐年历史")
+@router.get("/units/{unit_id}/history", response_model=Envelope[UnitHistoryPayload], summary="投档单位逐年历史")
 def unit_history(
     unit_id: str,
     session: DbDep,

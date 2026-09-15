@@ -81,6 +81,8 @@ def test_openapi_schema_is_valid_and_complete(client: TestClient) -> None:
     paths = schema["paths"]
     for expected in (
         "/api/v1/meta/provinces",
+        "/api/v1/meta/provinces/{province}/rule",
+        "/api/v1/meta/provinces/{province}/subject-coverage",
         "/api/v1/meta/tiers",
         "/api/v1/students",
         "/api/v1/students/{student_id}/resolve-rank",
@@ -99,6 +101,58 @@ def test_openapi_schema_is_valid_and_complete(client: TestClient) -> None:
         "/api/v1/backtest/report",
     ):
         assert expected in paths, expected
+
+
+def test_openapi_payloads_are_typed_not_free_form(client: TestClient) -> None:
+    """★ M4 前置条件：响应体必须**有类型**，否则前端"类型从 OpenAPI 生成"形同虚设。
+
+    AGENTS.md §4.3 硬性规则 2 禁止前端手写第二份类型；若响应体是裸 ``dict``，
+    生成的 TS 类型就是 ``{[key: string]: unknown}``，契约约束会整个失效。
+    """
+    schema = client.get("/openapi.json").json()
+    components = schema["components"]["schemas"]
+    for name in (
+        "RecommendPayload",
+        "RecommendItem",
+        "RecommendStats",
+        "PlanPayload",
+        "PlanStats",
+        "ProvinceMeta",
+        "BatchMeta",
+        "SubjectPoolMeta",
+        "SubjectCoveragePayload",
+        "StudentPayload",
+        "ResolveRankPayload",
+        "TiersPayload",
+        "UnitHistoryPayload",
+        "RiskScanPayload",
+        "ChatHistoryPayload",
+    ):
+        assert name in components, f"OpenAPI 缺少响应模型 {name}"
+        assert components[name].get("properties"), f"{name} 没有声明任何字段"
+
+    item = components["RecommendItem"]["properties"]
+    for key in (
+        "unit",
+        "college",
+        "major",
+        "probability",
+        "probability_interval",
+        "tier",
+        "confidence",
+        "utility",
+        "score_breakdown",
+        "predicted_min_rank",
+        "sigma",
+        "evidence",
+        "adjustments",
+        "reasons",
+        "warnings",
+    ):
+        assert key in item, f"RecommendItem 缺字段 {key}"
+
+    recommend_200 = schema["paths"]["/api/v1/recommend"]["post"]["responses"]["200"]
+    assert "RecommendPayload" in json.dumps(recommend_200), "推荐端点未引用强类型载荷"
 
 
 # ---------------------------------------------------------------------------
@@ -135,6 +189,56 @@ def test_meta_tiers_documents_safety_gate(client: TestClient) -> None:
     assert data["safety_gate"]["affects"] == ["BAO", "DIAN"]
     assert data["safety_gate"]["warning_code"] == "SAFETY_MARGIN_NOT_MET"
     assert "仅供参考" in data["disclaimer"]
+
+
+def test_meta_provinces_carries_subject_pool_with_source(client: TestClient) -> None:
+    """AGENTS.md §8.1 Step 2：省份必须给出**带来源**的选考科目池。"""
+    body = client.get(f"{API}/meta/provinces").json()
+    by_province = {item["province"]: item for item in body["data"]}
+    for province, item in by_province.items():
+        pool = item["subject_pool"]
+        assert pool is not None, province
+        assert pool["origin"] == "RULE", province
+        assert pool["source_url"] and pool["source_quote"], province
+        assert pool["verified_year"] is not None, province
+        assert pool["choose"] == 3 and len(pool["subjects"]) >= 3, province
+        assert item["current_year"], province
+    assert by_province["zhejiang"]["subject_pool"]["mode"] == "7选3"
+    assert "技术" in by_province["zhejiang"]["subject_pool"]["subjects"]
+    for province in ("shanghai", "beijing", "shandong", "tianjin", "hainan"):
+        assert by_province[province]["subject_pool"]["mode"] == "6选3", province
+        assert "技术" not in by_province[province]["subject_pool"]["subjects"], province
+    # 天津科目池为 PRIMARY-GOV：必须被显式提示，不得当成 PRIMARY
+    assert by_province["tianjin"]["subject_pool"]["requires_caution"] is True
+    assert any("tianjin" in warning for warning in body["warnings"])
+    assert any(entry["what"] == "subject_pool" for entry in body["evidence"])
+
+
+def test_subject_coverage_is_data_backed(client: TestClient) -> None:
+    """§8.1 Step 2 的"可报专业覆盖率"必须来自真实招生计划统计。"""
+    body = client.get(
+        f"{API}/meta/provinces/zhejiang/subject-coverage",
+        params={"subjects": "物理,化学,生物"},
+    ).json()
+    data = body["data"]
+    assert data["total_units"] > 0
+    assert 0.0 < data["coverage"] <= 1.0
+    assert data["matched_units"] <= data["total_units"]
+    assert data["batch_code"] == "zhejiang.public.seg1"
+    assert data["source_url"], "覆盖率必须能追到规则来源"
+    assert data["subject_pool"]["subjects"]
+    assert all(entry.get("source_url") for entry in body["evidence"])
+
+    # 换一个明显更窄的组合，覆盖率不得上升（物理必选单位很多）
+    narrow = client.get(
+        f"{API}/meta/provinces/zhejiang/subject-coverage",
+        params={"subjects": "思想政治,历史,地理"},
+    ).json()["data"]
+    assert narrow["coverage"] < data["coverage"]
+
+    missing = client.get(f"{API}/meta/provinces/jiangsu/subject-coverage")
+    assert missing.status_code == 404
+
 
 
 # ---------------------------------------------------------------------------
@@ -315,6 +419,25 @@ def test_plan_generate_and_get(client: TestClient, student_id: str, plan_id: str
     assert client.get(f"{API}/plans/not-exist").status_code == 404
 
 
+def test_plan_payload_carries_college_names(client: TestClient, plan_id: str) -> None:
+    """志愿表的 PlanItem 只有 college_id；没有院校名，志愿表页面无法阅读（§8.2）。"""
+    payload = client.get(f"{API}/plans/{plan_id}").json()["data"]
+    colleges = payload["colleges"]
+    assert colleges, "志愿表必须带院校索引"
+    for item in payload["plan"]["items"]:
+        college_id = item["unit"]["college_id"]
+        assert college_id in colleges, college_id
+        entry = colleges[college_id]
+        assert entry["name"], college_id
+        assert "source_url" in entry
+    # 重新生成也必须带（generate / load / patch 三条路径口径一致）
+    regenerated = client.post(
+        f"{API}/plans/generate",
+        json={"student_id": payload["plan"]["student_id"]},
+    ).json()["data"]
+    assert regenerated["colleges"], "生成时也必须带院校索引"
+
+
 def test_plan_ids_are_unique_without_explicit_id(client: TestClient, student_id: str) -> None:
     """回归：不传 plan_id 时连续生成两张志愿表必须都成功（秒级时间戳 id 会同秒撞主键）。"""
     first = client.post(f"{API}/plans/generate", json={"student_id": student_id})
@@ -350,6 +473,41 @@ def test_plan_patch_reorder_and_validate(client: TestClient, plan_id: str) -> No
     )
     assert unknown.status_code == 422
     assert unknown.json()["error"]["code"] == "UNKNOWN_UNITS"
+
+
+def test_plan_remove_is_reversible(client: TestClient, plan_id: str) -> None:
+    """回归：**删掉的志愿必须能加回来**。
+
+    志愿填报工具里"移除"不可逆是危险缺陷——考生误删一个保底志愿却无法恢复。
+    候选池 = 生成时的候选池（由同一套 evaluate_candidates 现场重算），因此：
+    池内单位随时可加回，池外单位（含被硬约束剔除的）依然 422。
+    """
+    original = client.get(f"{API}/plans/{plan_id}").json()["data"]["plan"]
+    removed = original["items"][0]
+    removed_unit_id = removed["unit"]["unit_id"]
+    rest = original["items"][1:]
+
+    shrunk = client.patch(
+        f"{API}/plans/{plan_id}/items",
+        json={"items": [{"unit_id": item["unit"]["unit_id"]} for item in rest]},
+    )
+    assert shrunk.status_code == 200, shrunk.text
+    remaining = [item["unit"]["unit_id"] for item in shrunk.json()["data"]["plan"]["items"]]
+    assert removed_unit_id not in remaining
+
+    # 加回来：追加到末尾，必须成功，且分层/概率/区间由重算结果给出（不沿用旧值）
+    restored_items = [*remaining, removed_unit_id]
+    restored = client.patch(
+        f"{API}/plans/{plan_id}/items",
+        json={"items": [{"unit_id": unit_id} for unit_id in restored_items]},
+    )
+    assert restored.status_code == 200, restored.text
+    items = restored.json()["data"]["plan"]["items"]
+    assert [item["unit"]["unit_id"] for item in items] == restored_items
+    last = items[-1]
+    assert last["tier"] in {"CHONG", "WEN", "BAO", "DIAN"}
+    assert last["probability_interval"], "重算后必须带 ±1σ 概率区间（UI 只显示区间）"
+    assert last["probability"] is not None
 
 
 def test_plan_export_pdf_and_xlsx(client: TestClient, plan_id: str) -> None:

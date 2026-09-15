@@ -12,7 +12,12 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query, Response
 
 from app.api.deps import DbDep
-from app.api.schemas import Envelope, PlanGenerateRequest, PlanPatchRequest
+from app.api.schemas import (
+    Envelope,
+    PlanGenerateRequest,
+    PlanPatchRequest,
+    PlanPayload,
+)
 from app.db import repositories as repo
 from app.services import backtest_service, plan_service, report_service
 
@@ -24,10 +29,12 @@ def _bundle_payload(bundle: plan_service.PlanBundle) -> dict:
         "plan": bundle.plan.model_dump(mode="json"),
         "risks": [risk.model_dump(mode="json") for risk in bundle.risks],
         "stats": bundle.stats,
+        # college_id -> 院校摘要：志愿表的 PlanItem 只带 college_id，没有院校名就无法阅读
+        "colleges": bundle.colleges,
     }
 
 
-@router.post("/generate", response_model=Envelope[dict], summary="生成志愿表")
+@router.post("/generate", response_model=Envelope[PlanPayload], summary="生成志愿表")
 def generate_plan(payload: PlanGenerateRequest, session: DbDep) -> Envelope[dict]:
     row = repo.get_student(session, payload.student_id)
     if row is None:
@@ -47,7 +54,7 @@ def generate_plan(payload: PlanGenerateRequest, session: DbDep) -> Envelope[dict
     )
 
 
-@router.get("/{plan_id}", response_model=Envelope[dict], summary="读取志愿表")
+@router.get("/{plan_id}", response_model=Envelope[PlanPayload], summary="读取志愿表")
 def get_plan(plan_id: str, session: DbDep) -> Envelope[dict]:
     bundle = plan_service.load(session, plan_id)
     return Envelope[dict](
@@ -55,18 +62,26 @@ def get_plan(plan_id: str, session: DbDep) -> Envelope[dict]:
     )
 
 
-@router.patch("/{plan_id}/items", response_model=Envelope[dict], summary="手改志愿表（覆盖式）")
+@router.patch(
+    "/{plan_id}/items", response_model=Envelope[PlanPayload], summary="手改志愿表（覆盖式）"
+)
 def patch_items(plan_id: str, payload: PlanPatchRequest, session: DbDep) -> Envelope[dict]:
     items = [entry.model_dump() for entry in payload.items]
     bundle = plan_service.patch_items(
-        session, plan_id, items=items, obey_adjustment=payload.obey_adjustment
+        session,
+        plan_id,
+        items=items,
+        obey_adjustment=payload.obey_adjustment,
+        criteria=payload.filters.to_criteria() if payload.filters else None,
     )
     return Envelope[dict](
         data=_bundle_payload(bundle), evidence=bundle.evidence, warnings=bundle.warnings
     )
 
 
-@router.post("/{plan_id}/validate", response_model=Envelope[dict], summary="风险扫描（重跑）")
+@router.post(
+    "/{plan_id}/validate", response_model=Envelope[PlanPayload], summary="风险扫描（重跑）"
+)
 def validate_plan(plan_id: str, session: DbDep) -> Envelope[dict]:
     bundle = plan_service.validate(session, plan_id)
     return Envelope[dict](

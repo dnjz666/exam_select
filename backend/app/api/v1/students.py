@@ -10,7 +10,13 @@ from fastapi import APIRouter, status
 from sqlalchemy import select
 
 from app.api.deps import DbDep
-from app.api.schemas import Envelope, StudentCreateRequest, StudentPatchRequest
+from app.api.schemas import (
+    Envelope,
+    ResolveRankPayload,
+    StudentCreateRequest,
+    StudentPatchRequest,
+    StudentPayload,
+)
 from app.db import models as db
 from app.db import repositories as repo
 from app.services import student_service
@@ -59,7 +65,8 @@ def _warnings_for(profile_missing: list[str]) -> list[str]:
     return [f"档案未完成，缺少：{names}。完成前不得进入推荐（AGENTS.md §8.1）。"]
 
 
-@router.post("", response_model=Envelope[dict], status_code=status.HTTP_201_CREATED, summary="创建档案")
+@router.post("", response_model=Envelope[StudentPayload],
+         status_code=status.HTTP_201_CREATED, summary="创建档案")
 def create_student(payload: StudentCreateRequest, session: DbDep) -> Envelope[dict]:
     row = student_service.create(session, payload.model_dump())
     data = _student_payload(row)
@@ -70,7 +77,9 @@ def create_student(payload: StudentCreateRequest, session: DbDep) -> Envelope[di
     )
 
 
-@router.get("/{student_id}", response_model=Envelope[dict], summary="读取档案")
+@router.get(
+    "/{student_id}", response_model=Envelope[StudentPayload], summary="读取档案"
+)
 def get_student(student_id: str, session: DbDep) -> Envelope[dict]:
     row = repo.get_student(session, student_id)
     if row is None:
@@ -84,7 +93,9 @@ def get_student(student_id: str, session: DbDep) -> Envelope[dict]:
     return Envelope[dict](data=data, evidence=evidence, warnings=_warnings_for(data["missing_fields"]))
 
 
-@router.patch("/{student_id}", response_model=Envelope[dict], summary="补全/修改档案")
+@router.patch(
+    "/{student_id}", response_model=Envelope[StudentPayload], summary="补全/修改档案"
+)
 def patch_student(student_id: str, payload: StudentPatchRequest, session: DbDep) -> Envelope[dict]:
     row = repo.get_student(session, student_id)
     if row is None:
@@ -104,7 +115,11 @@ def patch_student(student_id: str, payload: StudentPatchRequest, session: DbDep)
     return Envelope[dict](data=data, evidence=evidence, warnings=_warnings_for(data["missing_fields"]))
 
 
-@router.post("/{student_id}/resolve-rank", response_model=Envelope[dict], summary="分数 → 位次")
+@router.post(
+    "/{student_id}/resolve-rank",
+    response_model=Envelope[ResolveRankPayload],
+    summary="分数 → 位次",
+)
 def resolve_rank(student_id: str, session: DbDep) -> Envelope[dict]:
     row = repo.get_student(session, student_id)
     if row is None:

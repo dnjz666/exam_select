@@ -10,14 +10,14 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from app.api.deps import DbDep
-from app.api.schemas import Envelope, RecommendRequest
+from app.api.schemas import Envelope, RecommendPayload, RecommendRequest
 from app.db import repositories as repo
 from app.services import recommend_service
 
 router = APIRouter(tags=["recommend"])
 
 
-@router.post("/recommend", response_model=Envelope[dict], summary="核心推荐")
+@router.post("/recommend", response_model=Envelope[RecommendPayload], summary="核心推荐")
 def recommend(payload: RecommendRequest, session: DbDep) -> Envelope[dict]:
     row = repo.get_student(session, payload.student_id)
     if row is None:

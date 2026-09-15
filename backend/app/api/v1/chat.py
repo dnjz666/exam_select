@@ -14,7 +14,7 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
 from app.api.deps import DbDep
-from app.api.schemas import ChatRequest, Envelope
+from app.api.schemas import ChatHistoryPayload, ChatRequest, Envelope
 from app.services import chat_service
 
 router = APIRouter(tags=["chat"])
@@ -37,7 +37,11 @@ def chat(payload: ChatRequest, session: DbDep) -> StreamingResponse:
     )
 
 
-@router.get("/chat/{session_id}/history", response_model=Envelope[dict], summary="对话历史")
+@router.get(
+    "/chat/{session_id}/history",
+    response_model=Envelope[ChatHistoryPayload],
+    summary="对话历史",
+)
 def chat_history(session_id: str) -> Envelope[dict]:
     messages = chat_service.history(session_id)
     warnings: list[str] = []
