@@ -58,6 +58,21 @@
 见 `docs/DOMAIN_RULES.md` §3（`tier_bounds`）与 AGENTS.md §6.2 Step 8 / §6.3。
 `probability = None` ⇔ `confidence = NO_DATA` ⇔ `tier = NO_DATA`（契约铁律，禁止编造）。
 
+### 1.6 `assumptions` 与 `caveats`（`BatchRule` 的两个"诚实字段"）
+
+| 字段 | 语义 | 对来源等级的影响 | 例 |
+|---|---|---|---|
+| `assumptions` | **未核实维度**：该批次的某个属性没有官方原文支撑，只能按惯例/同类建模 | ★ **强制降级**：带 `assumptions` 的批次不得标 `PRIMARY`（`tests/test_rules.py` 强制） | 天津专科批「志愿性质未核实，按院校专业组模式建模」；海南提前普通类「按提前批惯例（顺序志愿）建模」 |
+| `caveats` | **已知待办 / 时效提醒**：来源本身可信，但有后续动作待做 | 不影响等级 | 山东「依据 2020/2021 官网问答，未取当年《录取工作意见》再核年份」 |
+
+> **为什么拆两个字段**：把"我不知道"（assumptions）和"我知道但还没补"（caveats）混在一起，
+> 会让来源等级失去分辨力——山东的来源是考试院官网原文（PRIMARY），只是年份待再核；
+> 若因此降级为 SECONDARY，就会误触发"不得用于真实填报"的红线。
+> 规则：**宁可少落一个批次，也不给未核实维度编一个数字**（未核实维度一律写进 `assumptions` 并显式降级）。
+
+**`verified_year` 口径**：指**规则核实年份**（本项目为 2026，即规则适用的招生年）；
+引用文件的发表年份写在 `source_quote` 内，两者不得混用（山东即为此例）。
+
 ---
 
 ## 2. 表字段字典
@@ -87,7 +102,9 @@
 | 字段 | 口径 |
 |---|---|
 | `unit_id` | `f"{province}-{year}-{college_code}-{group_code}-{major_code}"`，全局唯一 |
-| `unit_key`（派生） | `f"{province}-{college_code}-{group_code}-{major_id}"`，**不含年份**，用于跨年对齐 |
+| `unit_key`（派生） | `f"{province}-{college_code}-{group_code}-{major_code}"`，**不含年份**，用于跨年对齐；`group_code` 为 `None`（专业+院校模式）时用占位符 `NA` |
+| `college_code` | ★ **必须全局唯一**（M1 起用全国统一序号 1001…）。同一招生省的单位来自多省院校，若代码按院校所在省各自编号，不同院校会撞出相同 `unit_key`（M1 实测缺陷，见 ADR-008） |
+| 单位覆盖范围 | M1 只生成各省**主批次**（`ProvinceRule.main_batch()`）的单位；其余批次单位按需在 M2/M6 补齐 |
 | `subject_requirement` | JSON：`{"mode":"all_of"|"any_of","subjects":[...]}`（DOMAIN_RULES §2.4） |
 | `subject_req_status` | `PARSE_FAILED` 拒绝入库 |
 | `plan_count` | 必须 > 0（CHECK）；< 5 触发 `PLAN_TOO_SMALL` 风险 |
@@ -133,7 +150,7 @@
 | `ScoredUnit` / `ScoreBreakdown` | 打分候选 | 每项分值 [0,1] 且可追溯（DOMAIN_RULES §5） |
 | `PlanItem` / `VolunteerPlan` | 志愿表 | `items` 有序；`obey_adjustment` 仅 `MAJOR_GROUP` 有意义 |
 | `Risk` | 风险项 | 每个 code 必须带 `suggestion`（AGENTS.md §6.8） |
-| `BatchRule` | 批次级规则 | 必带 `source_url` + `source_quote` + `verified_status/year`；扩展字段未核实一律 `None`（ADR-006） |
+| `BatchRule` | 批次级规则 | 必带 `source_url` + `source_quote` + `verified_status/year`；扩展字段未核实一律 `None`；未核实维度入 `assumptions`（强制非 PRIMARY）、时效待办入 `caveats`（见 §1.6，ADR-006/008） |
 | `ModelParams` | 模型参数 | 默认值唯一来源 DOMAIN_RULES §3；改动必须重跑回测 |
 
 ---
@@ -141,6 +158,25 @@
 ## 4. 命名与编码约定
 
 - `unit_id` / `unit_key` 的拼接顺序固定为 `province-college_code-group_code-major(_code)`（`unit_id` 额外带 `year`），禁止其他顺序；
+- **院校代码全局唯一**（§2.3）：`unit_key` 用院校代码而非 `college_id`，代码撞号会直接产生重复单位键；
 - 批次编码 `batch_code` 形如 `zhejiang.public.seg1` / `beijing.undergrad.regular`（ADR-006）；
 - 所有 JSON 文本列（`level_tags` / `subject_requirement`）入库前必须可 `json.loads`，否则视为校验失败；
-- 金额字段（`tuition` / 预算）单位统一为 **元/年**，禁止混用万元。
+- 金额字段（`tuition` / 预算）单位统一为 **元/年**，禁止混用万元；
+- **模拟数据来源标记**：`source_url` 统一为 `synthetic://exam_select/etl/synthetic.py?seed=<SEED>`，
+  且 `is_synthetic=1` / `verified=0`；校验器强制所有行 `source_url` 非空（含模拟行）。
+
+---
+
+## 5. 模拟数据生成器口径（M1 · `backend/app/etl/synthetic.py`）
+
+| 项 | 口径 |
+|---|---|
+| 确定性 | 单一种子 `SEED = 20250915`；生成顺序由**排序后的名册**决定（不依赖 dict/set 遍历序）；两次运行 `SyntheticDataset.digest()` 必须相同（验收项） |
+| 名册来源 | `app/etl/catalog.py`：**418 所真实院校名**（层次码 985 / 211 / SY / PROV / PRIV）+ **528 个真实专业名**（门类/专业类/选考要求），均为公开信息 |
+| 考生规模量级 | 浙江 39 万 / 山东 70 万 / 上海 5.4 万 / 北京 6.7 万 / 天津 7 万 / 海南 7.4 万（**量级**参照真实公告，数值本身为模拟值） |
+| 分数满分 | 上海 660、海南 900（标准分）、其余 750（按各省计分规则量级模拟） |
+| 一分一段表 | 正态分布（分段 σ：下尾 ×1.25~1.32 加长）+ 整数分；`count_at_score`/`cumulative_rank` 累加自洽；最低分累计位次 **必须等于** `province_year_stats.total_candidates` |
+| 单位生成 | 每省取本地院校 + 全国 985/211/双一流 + 外省抽样（上限 110 所）；院校专业组按**选考要求相同**打包，组内专业数受 `majors_per_group` 约束 |
+| 位次生成 | 层次档比例 × 该年考生数；冷门专业 ×1.45、热门专业 ×0.62 修正；**夹紧到 [1, 该年考生数]**（位次不可能大于考生总数） |
+| 注入规律 | 大小年 10%、计划突增/突减 8%、新增专业 7%（零历史行）、小计划 6%、征集志愿 3%、`DERIVED` 12% |
+| 合规 | 全部行 `is_synthetic=1`、`verified=0`、`source_url` 前缀 `synthetic://`；**严禁用于真实填报** |

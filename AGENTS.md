@@ -720,6 +720,10 @@ class BatchRule(BaseModel):
     adjustment_scope: str | None = None        # 调剂边界，如 "仅限组内"（上海已核实）
     withdrawal_clause: list[str] | None = None # 退档情形（上海已核实）
 
+    # ---- 未核实维度 vs 时效待办（★ 宁可不答，不可编造；语义见 docs/DATA_DICTIONARY.md §1.6）
+    assumptions: list[str] = []    # 未核实维度；带 assumptions 的批次不得标 PRIMARY（测试强制）
+    caveats: list[str] = []        # 已知待办 / 时效提醒，不影响来源等级
+
 class ProvinceRule(ABC):
     province: str
     batches: list[BatchRule]               # ★ 至少一个
@@ -741,8 +745,9 @@ class ProvinceRule(ABC):
   若套用"冲稳保 25/40/25/10"配额，会把保底职责放在几乎不可能投出的位置上，是纯粹的误导。
   （原文：「提前录取院校设5个院校传统志愿，每所院校设6个专业志愿和专业服从调剂志愿。」——浙江省教育考试院 2026）
 
-M1 交付规则包时，六省的提前批/专科批 `BatchRule` 数据必须补齐
-（现状与待办见 `docs/DOMAIN_RULES.md` §1.3）。
+**M1 已交付 20 个批次**（六省，含浙江提前批、上海提前批/综合评价/零志愿/地方农村专项等
+**顺序志愿**批次，全部带 `source_quote` 原文摘录）；仍未落实的批次见 `docs/DOMAIN_RULES.md` §1.3
+——**缺来源数字一律不落码**，绝不用常识补全。
 
 ### 6.7 志愿表生成（`core/planner.py`）
 

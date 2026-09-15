@@ -285,6 +285,40 @@ M0 验收需 `pip install -e backend`。本机安装先后两次挂起（>10 分
 | 用系统 Python 3.13 直接装包跑 | 违反 ADR-001（必须 3.11），且未验证 |
 | 改用 uv/poetry | 本机未安装，引入新工具链违反"本项目不需要"结论 |
 
+> **2026-09-14 追记（在线路径复核，受控实验）**：**代理开启时 pip 在线安装可用，无需关闭代理**。
+> 在线路径固化为 `scripts/pip_online.ps1`；离线 wheel 路径保留为复现/CI 兜底。要点：
+>
+> 1. **代理通道实测健康**：raw socket 直连 `127.0.0.1:7897` 发 CONNECT——绕开一切客户端库的
+>    bypass 逻辑（关键方法学改进）——tuna / pypi.org / files.pythonhosted.org 全部
+>    `HTTP/1.1 200 Connection established` + TLS + GET 200（0.3–0.5s）；urllib 直连 /
+>    显式代理 / 注册表代理三路径同样全 200（0.24–0.55s）。
+> 2. **勘误 1（`NO_PROXY='*'`）**：本机两个版本实测均**识别** `'*'`——venv 实际使用的
+>    pip 24.0（vendored requests 2.31.0）与全局 pip 26.2（2.34.2）的
+>    `should_bypass_proxies(url, no_proxy='*')` 均为 True（最终落到 stdlib
+>    `proxy_bypass_environment()`，该层对 `'*'` 无条件放行）。上文"requests 不识别 `*`"
+>    不成立。当时"仍走 127.0.0.1:7897"最可能是 **pip 子进程环境里根本没有 NO_PROXY**
+>    （例如只在另一个 shell 设置过）。仍建议主机列表形式：`'*'` 的语义依赖 stdlib 回退路径，
+>    主机列表（requests 按后缀匹配）跨版本确定。
+> 3. **勘误 2（实验方法学）**：若环境已设 `NO_PROXY='*'`，stdlib `proxy_bypass()` 对**任何**
+>    主机返回 True——即使 `ProxyHandler({'https': ...})` 显式传入代理也会被跳过。因此上文
+>    "urllib 走代理全通"那组样本**可能实际是直连**，证据力不足；本条以 raw CONNECT 重测。
+> 4. **冻结点改述**：构建隔离首批请求 = 拉取 `[build-system].requires`（setuptools/wheel 等），
+>    与主进程同一 Python ssl/OpenSSL 栈。双路径既通，两次 >10min 挂起判定为**瞬时状态**
+>    （mihomo 节点/规则或 TUN DNS 当时异常），非栈不兼容。复现时加
+>    `--timeout 15 --retries 2 -vv` 并对照 mihomo 连接面板，15s 内显性化，不会再"挂十分钟"。
+> 5. **pip 与 Schannel 无关**：curl.exe / IWR 的 `SEC_E_NO_CREDENTIALS` 属 Schannel 栈问题；
+>    pip 走 OpenSSL，不受影响。本机网络取证统一用 python stdlib / raw socket。
+> 6. **agent 会话内禁止跑 pip**：DSH 会话沙箱拒绝写入/删除"子进程以 mkdtemp 创建的目录"
+>    （对照实验：同一路径 `os.makedirs` 目录可写 `.whl`，`mkdtemp` 目录写入与删除均 EACCES，
+>    PowerShell 删除同样被拒），而 pip 的全部临时目录都是 `mkdtemp` 建的，故 pip 在
+>    agent 会话内必然 PermissionError。**pip 一律在本机终端执行。**
+>
+> 在线用法（`powershell -ExecutionPolicy Bypass -File scripts\pip_online.ps1`，二选一显式化，
+> 不依赖注册表回退）：默认 = 路径 A（tuna 直连 + `NO_PROXY` 主机列表，代理不影响其他应用）；
+> `-ViaProxy` = 路径 B（显式 `HTTPS_PROXY=http://127.0.0.1:7897`，适合官方源）。
+> 上表"继续 pip 在线安装"的否决理由据此修订："机制不明"已澄清；"离线更确定"仍成立，
+> 故离线保留为兜底而非废弃。
+
 ---
 
 ## M0 验收记录（2026-02）
@@ -333,3 +367,120 @@ M0 验收需 `pip install -e backend`。本机安装先后两次挂起（>10 分
 - 数据库迁移工具（alembic）与 seed 脚本属 M1；
 - **下一轮从 M1 开始**：`etl/synthetic.py` 确定性数据生成器 + 六省批次级规则包（`BatchRule`，
   提前批/专科批数据补齐见 `DOMAIN_RULES.md` §1.3）。
+
+---
+
+## ADR-008 · M1 数据层与模拟数据生成的关键决策
+
+- **日期**：2026-02（M1 轮）
+- **状态**：已采纳
+
+### 背景
+
+M1 需交付确定性模拟数据与六省批次级规则包。约束有四条：
+① `core/` 必须纯函数、禁止 IO（ADR-003）；② 规则数字必须有来源（项目红线）；
+③ 按 ADR-007 追记第 6 条，**agent 会话内不得运行 pip**，新增依赖的代价很高；
+④ 实现过程中实测出四个真实缺陷（见下"实测缺陷"），必须在 M1 内修掉并留档。
+
+### 决策
+
+1. **M1 不引入 numpy / pandas / scipy**：一分一段表的正态分布用 `math.erfc` 精确实现，
+   抽样用 stdlib `random.Random`，院校/专业名册为纯 Python 常量表。
+   理由：stdlib 已完全够用，而新增依赖要跨"会话内禁 pip"这道门槛；
+   **M2 概率模型再按技术栈引入 numpy/scipy**（`scipy.stats.norm.cdf` 是 AGENTS.md §6.2 指定实现）。
+   → 结果：M1 全程**零新增依赖、零 pip 调用**。
+2. **规则包只落"数量 + 志愿性质均有来源支撑"的批次**，未核实的批次不落码、记入
+   `DOMAIN_RULES.md` §1.3（"宁可不答，不可编造"）。共交付 **20 个 `BatchRule`**。
+3. **`BatchRule` 新增 `assumptions` 与 `caveats` 两个字段**：
+   `assumptions` = 未核实维度（**强制非 PRIMARY**，由 `tests/test_rules.py` 断言）；
+   `caveats` = 已知待办 / 时效提醒（不影响来源等级）。语义见 `DATA_DICTIONARY.md` §1.6。
+4. **院校代码改为全国统一序号（全局唯一）**：`unit_key = {招生省}-{院校代码}-{组}-{专业}`，
+   而同一招生省包含多个省的院校；若院校代码按"院校所在省"各自编号，不同院校会撞出同一 `unit_key`。
+5. **校验器 ERROR / WARNING 分级**：ERROR 必须为 0（结构性错误）；
+   WARNING 承载"注入规律可检出"与"规则核实红线"的证据
+   （`W_RULE_REDLINE` 自动检出天津/海南，禁止靠人工记忆）。
+6. 模拟数据 `source_url` 统一为 `synthetic://exam_select/etl/synthetic.py?seed=<SEED>`，
+   `is_synthetic=1` / `verified=0`；校验器强制**所有行（含模拟行）**`source_url` 非空。
+
+### 实测缺陷（本轮真实踩到，已修并有回归测试）
+
+| 缺陷 | 症状 | 根因 | 修复 |
+|---|---|---|---|
+| 单位键撞车 | 161 个 `unit_id` 重复、259 个 `(unit_key, year, is_collected)` 重复、483 个计划键重复 | 院校代码按"院校所在省"编号（每省从 1001 起），而 `unit_key` 前缀是**招生省** → `beijing-1001` 与 `gansu-1001` 撞键 | 院校代码改全国统一序号（决策 4） |
+| 位次越界 | 校验报 `MIN_RANK_OUT_OF_RANGE`（位次 > 全省考生数） | 大小年 ×1.45 × 征集 ×1.35 × 冷门 ×1.45 × 高位次档叠加越界 | 位次生成后夹紧到 `[1, 该年考生数]` |
+| 大小年方向写死 | volatile 单位两年位次单向下滑而非震荡，cv 检不出"大小年" | `mult` 按年份硬编码 + 二次随机取倒数，导致某年恒为 ×0.75 | 改为「先随机指定哪一年是冷年，两年一大一小」 |
+| 来源等级与"假设"混淆 | 山东 `PRIMARY` + `assumptions` 触发"假设必须降级"自检 | 把"文件年份待再核（时效）"与"未核实维度（假设）"塞进同一字段 | 拆分 `assumptions` / `caveats`（决策 3） |
+
+### 后果
+
+- ✅ 零新增依赖：完全绕开"会话内禁 pip"的阻塞，M1 无需任何网络与安装动作。
+- ✅ 数据确定性可验证：两次生成 `digest` 相同；幂等由脚本与测试双重保证。
+- ✅ 注入规律被量化为 WARNING，M2 可直接用这些样本验证概率模型与风险码。
+- ⚠️ 未交付：六省提前批/专科批的部分批次数据、艺体批次（非目标）、alembic 迁移。
+- ⚠️ 单位只覆盖各省**主批次**；M1 数据规模（4510 单位 / 8400 历史行）足以验证算法，
+  但**不是真实招生规模**，M6 接真实数据后需重新校准性能与回测。
+
+### 被否决的方案
+
+| 方案 | 否决理由 |
+|---|---|
+| 引入 numpy/pandas 生成分布与数据框 | stdlib 已足够；新增依赖要跨"会话内禁 pip"，收益为零 |
+| 把 `unit_key` 改用 `college_id`（含所在省）以避开撞号 | 偏离 AGENTS.md §5.1 规定的 `unit_id` 形态；让院校代码全局唯一更小、更一致 |
+| 为凑"六省全批次"给未核实批次填数字 | 违反项目最高原则；已改为 `assumptions` 显式声明 + §1.3 待办 |
+| 把 `assumptions` 与 `caveats` 合成一个字段 | 来源等级会失去分辨力（山东 PRIMARY 被误降级，误触发"不得用于真实填报"红线） |
+
+---
+
+## M1 验收记录（2026-02）
+
+**验收命令与真实输出**（AGENTS.md §10 M1；解释器按 ADR-001 用 venv，禁裸 `python`）：
+
+```text
+1) backend\.venv\Scripts\python.exe scripts\seed.py --reset
+   → [seed] --reset：已删除全部表
+   → [seed] 生成完成（seed=20250915）摘要=22d5b101f84c3cea
+        colleges 418 / majors 528 / score_rank_table 9228 / province_year_stats 18
+        admission_units 4510 / admission_plans 13530 / admission_history 8400
+   → 注入样本：collected=248，derived=989，new_major=310，plan_spike=361，
+     small_plan=281，volatile=422
+   → [seed] ✓ 幂等完成：库内计数与生成计数一致        （exit=0）✅
+
+2) backend\.venv\Scripts\python.exe scripts\seed.py        # 幂等复跑
+   → 摘要仍为 22d5b101f84c3cea，逐表计数同上，exit=0
+   → 结论：重复执行结果一致（**内容摘要也相同**，不只是计数）✅
+
+3) backend\.venv\Scripts\python.exe -m app.etl.validate --report
+   → ---- ERROR（0 条）---- （无）
+   → WARNING 8 条：
+     W_COLLECTED 248 / W_DERIVED 989 / W_NO_HISTORY 310 / W_PLAN_SPIKE 394 /
+     W_SMALL_PLAN 284 / W_VOLATILE_UNITS 441 /
+     W_RULE_REDLINE（hainan, tianjin）/ W_RULE_NOT_PRIMARY（beijing, shanghai）
+   → 结论：通过（0 error）                            （exit=0）✅
+
+4) backend\.venv\Scripts\python.exe -m pytest backend/tests -q
+   → 49 passed, 2 warnings in 5.96s ✅
+   （test_rules 20 项 + test_synthetic 12 项 + test_validate 13 项 + M0 冒烟 3 项；
+     2 条警告来自 starlette/anyio 内部 Deprecation，非项目代码）
+```
+
+**完成定义逐项核对**：
+- [x] 数据可重复生成且一致（同 seed → 同 digest；`seed.py` 幂等）
+- [x] 校验 0 error（11 类结构不变量；每条 ERROR 码都有对应的"坏数据必须被检出"测试）
+- [x] 六省规则包齐备且每条带来源（20 个 `BatchRule`，`source_problems()` 全绿；
+      `assumptions` 强制非 PRIMARY 由测试强制）
+- [x] 故意注入的"大小年 / 计划突增"样本可被检出（441 个单位 cv > 0.15；394 个单位
+      2025 计划相对 2024 变动 ≥40%；310 个新增专业零历史行）
+- [x] 数据量达标：院校 418 所（≥300）、专业 528 个（≥500）、六省 × 3 年
+
+**环境附注**：M1 **未引入任何新依赖、未执行任何 pip 命令**（ADR-008 决策 1），
+因此完全不受 ADR-007 追记第 6 条"agent 会话内禁 pip"影响。
+M2 引入 numpy/scipy 时请在本机终端执行：
+`powershell -ExecutionPolicy Bypass -File scripts\pip_online.ps1`。
+
+**本轮未做 / 下轮起点**：
+- 未交付：六省提前批/专科批的部分批次数据（缺来源数字）、艺体批次（AGENTS §1.2 非目标）、
+  数据库迁移工具 alembic（仍用 `Base.metadata.create_all`）；
+- 单位只覆盖各省主批次（`main_batch`），其余批次的单位待 M2/M6 按需补齐；
+- **下一轮从 M2 开始**：`core/rank.py`（分数↔位次 + 归一化）、`core/probability.py`（§6.2 八步）、
+  `core/filters.py`、`core/scoring.py`、`core/planner.py`、`core/risk.py`、`core/backtest.py`、
+  `tests/golden/` 20 条黄金用例。

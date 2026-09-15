@@ -415,6 +415,14 @@ class BatchRule(BaseModel):
     adjustment_scope: str | None = None  # 调剂边界，如 "仅限组内"（上海已核实）
     withdrawal_clause: list[str] | None = None  # 退档情形（上海已核实）
 
+    # ---- 未核实维度的显式声明（★ 宁可不答，不可编造：假设必须可见且可测）
+    # 带 assumptions 的批次，verified_status 不得为 PRIMARY（tests/test_rules.py 强制）。
+    assumptions: list[str] = Field(default_factory=list)
+
+    # ---- 已知待办 / 时效提醒（不影响来源等级；与 assumptions 的区别见 DATA_DICTIONARY）
+    # 例："依据为 2020/2021 年官网问答，未取当年录取工作意见再核"
+    caveats: list[str] = Field(default_factory=list)
+
 
 # ====================================================================
 # 模型参数（唯一权威来源：docs/DOMAIN_RULES.md §3）
