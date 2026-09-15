@@ -688,12 +688,14 @@ M2 引入 numpy/scipy 时请在本机终端执行：
 | `validate` 端点 500 | `NameError: name 'plan' is not defined` | `plan_service.validate()` 漏写 `bundle.` 前缀（3 处） | 修正；测试覆盖该端点 |
 | 新表未建 | `no such table: students` | M3 新增表，而建表只在 M1 播种时发生 | dev 启动钩子 `init_db()`；`seed.py --reset` 亦会建表 |
 | **SQLite 相对路径随 CWD 漂移** | 从 `backend/` 启动（AGENTS §4.4 的**文档化命令**）时报 `unable to open database file`；更坏的情况是静默生成 `backend\data\exam_select.db` 这个**空库**，让人误以为"库里没数据" | 默认 `sqlite:///./data/exam_select.db` 是相对路径，而验收命令要求 `Push-Location backend` 后起服务 | `config.anchor_sqlite_url()` 把 SQLite 相对路径**锚定到仓库根**并确保父目录存在；新增 5 项 `test_config.py` 回归（含 `monkeypatch.chdir` 模拟不同 CWD） |
+| **plan_id 同秒撞主键** | 同一秒内连续生成两张志愿表 → `IntegrityError`（真实用户连点两次即触发） | `plan_service.generate` 的默认 id 用秒级时间戳——与学生 id 是**同一类缺陷**，当时只修了学生 | 默认 id 改 `plan-<uuid12>`；新增 `test_api.py::test_plan_ids_are_unique_without_explicit_id`（测试此前都传显式 id 才没暴露，说明**测试不该替生产兜底**） |
+| **README 示例不可执行** | 文档里的 `curl.exe -d '{"json"}'` → 服务端 `422 JSON decode error` | PowerShell 传参给原生 exe 时会**吃掉双引号**，JSON 被破坏 | README 示例改用 `Invoke-RestMethod + ConvertTo-Json` 并**逐条实测**（含导出字节数与风险条数），另加一节说明该坑 |
 
 ### 后果
 
-- ✅ M3 验收全绿：`pytest backend/tests/test_api.py -q` → **20 passed**；
-  全套 **192 passed**、core 覆盖率 **95.93%**；`/openapi.json` 可解析（OpenAPI 3.1.0，20 条路由），
-  真实 uvicorn 下建档→推荐→志愿表→导出的闭环已跑通。
+- ✅ M3 验收全绿：`pytest backend/tests/test_api.py -q` → **21 passed**；
+  全套 **193 passed**、core 覆盖率 **95.93%**；`/openapi.json` 可解析（OpenAPI 3.1.0，20 条路由），
+  真实 uvicorn 下建档→推荐→志愿表→导出的闭环已跑通（README 的端到端示例即由该实测固化而来）。
 - ✅ 契约铁律有测试守着：evidence 非空、概率 None ⇔ NO_DATA、来源齐全、概率区间存在。
 - ⚠️ 会话历史与 LLM 能力是 M5 的事；M3 的 `/chat` 只是"合规通道"，不是可用助手。
 - ⚠️ 志愿表手改仅限候选池内（新增志愿需重新生成）——这是刻意约束，M4 拖拽排序够用，
@@ -720,12 +722,13 @@ M2 引入 numpy/scipy 时请在本机终端执行：
 
 ```text
 1) backend\.venv\Scripts\python.exe -m pytest backend/tests/test_api.py -q
-   → 20 passed, 2 warnings in 14.40s        （exit=0）✅
+   → 21 passed, 2 warnings in 22.51s        （exit=0）✅
    覆盖端点：/health · /openapi.json · meta(provinces|rule|tiers) · students(POST|GET|PATCH|resolve-rank)
              colleges/search · majors/search · units/{id}/history · recommend · plans(generate|GET|PATCH|validate|export×2)
              risk/scan · chat(SSE) · chat/{id}/history · backtest/report
    覆盖铁律：evidence 非空且带 source_url · probability None ⇔ NO_DATA · 概率区间存在 · 来源齐全
              409（档案不全）· 404（不存在）· 422（导出格式/池外单位）
+   另含回归：不传 plan_id 连续生成两张志愿表都成功（秒级时间戳 id 会同秒撞主键）
    导出实测：PDF 以 %PDF 开头且 >1.5KB；XLSX 为 PK 压缩包；xlsx 四张表含免责声明与来源清单
 
 2) backend\.venv\Scripts\python.exe -c "from app.main import app; app.openapi()"
@@ -743,9 +746,9 @@ M2 引入 numpy/scipy 时请在本机终端执行：
       （BAO 稀缺 → planner 按 §6.7 规则 2「优先向更保守方向借位」，与 M2 安全闸门的 BAO 收缩一致）
 
 4) 全量回归：pytest backend/tests -q --cov=app.core --cov-fail-under=90
-   → 192 passed, 2 warnings in 49.21s
+   → 193 passed, 2 warnings in 58.76s
    → 覆盖率 TOTAL 1500 stmts / 61 miss / 95.93%（门槛 90% ✅）
-   → 其中 test_api.py 20 项（§7 全端点）+ test_config.py 5 项（路径锚定回归）
+   → 其中 test_api.py 21 项（§7 全端点）+ test_config.py 5 项（路径锚定回归）
 ```
 
 **完成定义逐项核对**：

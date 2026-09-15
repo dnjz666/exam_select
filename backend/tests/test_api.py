@@ -315,6 +315,15 @@ def test_plan_generate_and_get(client: TestClient, student_id: str, plan_id: str
     assert client.get(f"{API}/plans/not-exist").status_code == 404
 
 
+def test_plan_ids_are_unique_without_explicit_id(client: TestClient, student_id: str) -> None:
+    """回归：不传 plan_id 时连续生成两张志愿表必须都成功（秒级时间戳 id 会同秒撞主键）。"""
+    first = client.post(f"{API}/plans/generate", json={"student_id": student_id})
+    second = client.post(f"{API}/plans/generate", json={"student_id": student_id})
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    assert first.json()["data"]["plan"]["id"] != second.json()["data"]["plan"]["id"]
+
+
 def test_plan_patch_reorder_and_validate(client: TestClient, plan_id: str) -> None:
     plan = client.get(f"{API}/plans/{plan_id}").json()["data"]["plan"]
     items = plan["items"]

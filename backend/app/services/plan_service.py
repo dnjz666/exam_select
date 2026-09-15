@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass, field
 
 from sqlalchemy.orm import Session
@@ -111,7 +112,8 @@ def generate(
     # TOO_RISKY（概率 <0.10）默认不进志愿表（§6.3），planner 的分层元组里也没有它
     candidates = [scored for scored, result in bundle_in.pairs if result.tier is not Tier.TOO_RISKY]
     excluded_too_risky = len(bundle_in.pairs) - len(candidates)
-    plan_id = plan_id or f"plan-{repo.now_iso().replace(':', '').replace('-', '')}"
+    # 用 uuid 生成 plan_id：秒级时间戳在同一秒内会撞主键（与学生 id 同类缺陷，M3 实测）
+    plan_id = plan_id or f"plan-{uuid.uuid4().hex[:12]}"
     plan = generate_plan(
         bundle_in.profile,
         candidates,
