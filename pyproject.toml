@@ -1,0 +1,13 @@
+# 仓库根工具配置。
+# 后端包定义在 backend/pyproject.toml（安装命令：pip install -e backend，见 AGENTS.md §4.4），
+# 本文件只承载从仓库根运行的工具（pytest / coverage）配置。
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+pythonpath = ["backend"]
+addopts = "-q"
+
+[tool.coverage.run]
+source = ["app.core"]
+
+[tool.coverage.report]
+fail_under = 90

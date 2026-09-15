@@ -1,0 +1,30 @@
+# ⚠️ M0–M6 验收不依赖 Docker（本机守护进程未运行，AGENTS.md §4.4 / DECISIONS.md ADR-001）。
+# 本文件与 backend/Dockerfile 为 M7 容器化验证预置的骨架，未经本机验证。
+services:
+  backend:
+    build:
+      context: ./backend
+    environment:
+      APP_ENVIRONMENT: ${APP_ENVIRONMENT:-dev}
+      DATABASE_URL: ${DATABASE_URL:-sqlite:///./data/exam_select.db}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://127.0.0.1:5173}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+
+  # 生产库占位：dev 路径不启动（--profile prod）
+  postgres:
+    image: postgres:16-alpine
+    profiles: ["prod"]
+    environment:
+      POSTGRES_DB: exam_select
+      POSTGRES_USER: exam_select
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

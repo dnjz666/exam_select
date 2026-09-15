@@ -1,0 +1,47 @@
+# ---------- Python ----------
+backend/.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# ---------- Node ----------
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+pnpm-debug.log*
+
+# ---------- 生成物（禁止进版本库，构建时生成）----------
+# 前端类型由后端 OpenAPI schema 生成，见 AGENTS.md §4.3
+frontend/src/api/schema.d.ts
+
+# ---------- 数据 ----------
+data/*.db
+data/synthetic/*
+!data/synthetic/.gitkeep
+data/raw/*
+!data/raw/.gitkeep
+# 离线引导 wheel 缓存（ADR-007，scripts/bootstrap_wheels.py 可重建）
+data/wheels/
+# 回测报告为构建产物
+backtest_report.json
+backtest_report.md
+
+# ---------- 环境与密钥 ----------
+.env
+.env.local
+*.local
+
+# ---------- 工具副产物 ----------
+# DSH Desktop (Electron crashpad) 会往工作区根目录写这个文件，非项目产物
+debug.log
+
+# ---------- 编辑器 / 系统 ----------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
