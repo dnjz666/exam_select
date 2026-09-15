@@ -10,9 +10,11 @@ import pytest
 from app.core.models import ModelParams
 from app.etl.synthetic import (
     CURRENT_YEAR,
+    GROUND_TRUTH_YEAR,
     HISTORY_YEARS,
-    SEED,
+    PLAN_YEARS,
     PROVINCE_PROFILES,
+    SEED,
     generate,
 )
 
@@ -98,8 +100,50 @@ def test_units_respect_batch_mode_and_group_limits(dataset) -> None:
 
 def test_injected_patterns_are_present(dataset) -> None:
     injections = dataset.injections
-    for name in ("volatile", "plan_spike", "new_major", "small_plan", "collected", "derived"):
-        assert len(injections[name]) >= 100, (name, len(injections[name]))
+    for name in (
+        "volatile",
+        "trend_hot",
+        "trend_cold",
+        "plan_spike_live",
+        "plan_spike_backtest",
+        "new_major_2025",
+        "new_major_2026",
+        "small_plan",
+        "collected",
+        "derived",
+    ):
+        assert len(injections[name]) >= 50, (name, len(injections[name]))
+
+
+def test_plan_changes_causally_shift_cutoff_rank(dataset) -> None:
+    """M2 修复的真实缺陷：计划数必须**因果地**影响投档位次（否则 §6.2 Step 4 无从验证）。
+
+    做法：对"计划突减"的注入单位，比较其 2025（突减年）与实际位次的关系，
+    验证同层次随机单位里"计划增 → 位次后移"的方向性成立。
+    """
+    plans: dict[str, dict[int, int]] = defaultdict(dict)
+    for row in dataset.admission_plans:
+        plans[row["unit_key"]][row["year"]] = row["plan_count"]
+    ranks = {(row["unit_key"], row["year"]): row["min_rank"] for row in dataset.admission_history}
+
+    pairs: list[tuple[float, float]] = []  # (计划变动率, 位次变动率)
+    for key, years in plans.items():
+        if 2024 not in years or 2025 not in years:
+            continue
+        if (key, 2024) not in ranks or (key, 2025) not in ranks:
+            continue
+        if not years[2024] or not ranks[key, 2024]:
+            continue
+        plan_delta = (years[2025] - years[2024]) / years[2024]
+        rank_delta = (ranks[key, 2025] - ranks[key, 2024]) / ranks[key, 2024]
+        pairs.append((plan_delta, rank_delta))
+
+    assert len(pairs) > 1000
+    # 只挑出计划大幅变动的样本，方向必须为正相关（计划增 → 位次变大）
+    big = [(p, r) for p, r in pairs if abs(p) >= 0.3]
+    assert len(big) >= 100
+    same_direction = sum(1 for p, r in big if p * r > 0)
+    assert same_direction / len(big) > 0.55, f"计划与位次同向比例仅 {same_direction / len(big):.2f}"
 
 
 def test_volatile_injection_is_detectable_as_big_small_year(dataset) -> None:
@@ -130,14 +174,44 @@ def _unit_key(unit_id: str) -> str:
     return "-".join([parts[0], *parts[2:]])
 
 
-def test_new_major_injection_has_no_history(dataset) -> None:
-    """新增专业必须完全没有历史行（M2 必须走 Step 0 回退，禁止编造概率）。"""
-    units_with_history = {h["unit_key"] for h in dataset.admission_history}
-    new_major = set(dataset.injections["new_major"])
+def test_new_major_injections_have_expected_history(dataset) -> None:
+    """两类"新增专业"的语义必须严格区分（ADR-009）：
+
+    - ``new_major_2026``：完全无历史行（2026 年新增，预测只能走 Step 0）；
+    - ``new_major_2025``：只有 2025（地面真值年）行，2022–2024 为空
+      → 回测时可用它检验 Step 0 类比回退。
+    """
+    rows_by_key: dict[str, list[dict]] = defaultdict(list)
+    for row in dataset.admission_history:
+        rows_by_key[row["unit_key"]].append(row)
     all_unit_keys = {_unit_key(u["unit_id"]) for u in dataset.admission_units}
-    assert len(new_major) >= 100
-    assert new_major <= all_unit_keys  # 注入清单必须指向真实存在的单位
-    assert not (new_major & units_with_history)
+
+    fresh_2026 = set(dataset.injections["new_major_2026"])
+    fresh_2025 = set(dataset.injections["new_major_2025"])
+    assert len(fresh_2026) >= 100 and len(fresh_2025) >= 100
+    assert fresh_2026 <= all_unit_keys and fresh_2025 <= all_unit_keys
+    assert not fresh_2026 & fresh_2025
+
+    assert all(key not in rows_by_key for key in fresh_2026)
+    for key in fresh_2025:
+        years = {row["year"] for row in rows_by_key[key]}
+        assert years == {GROUND_TRUTH_YEAR}, (key, years)
+
+
+def test_timeline_supports_both_prediction_and_backtest(dataset) -> None:
+    """时间轴（ADR-009）：填报年 2026、历史 2022–2025、计划快照 2022–2026。"""
+    assert CURRENT_YEAR == 2026
+    assert GROUND_TRUTH_YEAR == 2025
+    assert set(HISTORY_YEARS) == {2022, 2023, 2024, 2025}
+    years_with_history = {row["year"] for row in dataset.admission_history}
+    assert years_with_history == set(HISTORY_YEARS)
+    plan_years = {row["year"] for row in dataset.admission_plans}
+    assert plan_years == set(PLAN_YEARS)
+    assert {u["year"] for u in dataset.admission_units} == {CURRENT_YEAR}
+    # 回测需要地面真值：2025 必须有实际行，且 2022–2024 也必须有（供 Y=2025 预测）
+    counts = {year: sum(1 for r in dataset.admission_history if r["year"] == year) for year in HISTORY_YEARS}
+    for year in (2022, 2023, 2024, GROUND_TRUTH_YEAR):
+        assert counts[year] > 1000, counts
 
 
 def test_plan_snapshot_matches_units_for_current_year(dataset) -> None:

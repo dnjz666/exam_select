@@ -9,6 +9,9 @@ dependencies = [
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
     "sqlalchemy>=2.0",
+    # M2 核心算法栈（AGENTS.md §4.1）：概率模型用 scipy.stats.norm.cdf（§6.2 Step 6）
+    "numpy>=1.26",
+    "scipy>=1.11",
 ]
 
 [project.optional-dependencies]

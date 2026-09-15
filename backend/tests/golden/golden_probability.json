@@ -1,0 +1,370 @@
+{
+  "kind": "probability",
+  "note": "概率黄金用例。期望值由 AGENTS.md §6.2 八步公式**人工推导**，derivation 字段记录关键中间量（R_pred / σ / z / P / cv）。所有 current_total_candidates 与历史 total_candidates 相等，故位次归一化为恒等变换，便于人工核对。",
+  "cases": [
+    {
+      "case_id": "G-001",
+      "description": "考生位次优于单位近三年位次、计划不变 → 稳档（HIGH）",
+      "derivation": "R0=0.5*9000+0.3*9500+0.2*9200=9190；slope=(9000-9200)/2=-100（未触限幅）→ R=9140；Δplan=0；σ_raw=205.5 → σ=max(205.5,274.2,300)=300；z=(9140-9000)/300=0.4667 → P=0.6796；cv=0.022 → 不收缩；N=3 全 OK 且计划 20≥10 → HIGH",
+      "student": { "rank": 9000, "subjects": ["物理", "化学", "生物"] },
+      "history": [
+        { "year": 2024, "min_rank": 9000, "min_score": 640, "plan_count": 20, "data_quality": "OK" },
+        { "year": 2023, "min_rank": 9500, "min_score": 632, "plan_count": 20, "data_quality": "OK" },
+        { "year": 2022, "min_rank": 9200, "min_score": 636, "plan_count": 20, "data_quality": "OK" }
+      ],
+      "plan_count_current": 20,
+      "current_total_candidates": 400000,
+      "expected": { "tier": "WEN", "prob_min": 0.65, "prob_max": 0.71, "confidence": "HIGH" }
+    },
+    {
+      "case_id": "G-002",
+      "description": "考生位次略差于单位 → 冲档",
+      "derivation": "同上 R_pred=9140、σ=300；z=(9140-9400)/300=-0.8667 → P=0.1931 → CHONG",
+      "student": { "rank": 9400, "subjects": ["物理", "化学", "生物"] },
+      "history": [
+        { "year": 2024, "min_rank": 9000, "min_score": 640, "plan_count": 20, "data_quality": "OK" },
+        { "year": 2023, "min_rank": 9500, "min_score": 632, "plan_count": 20, "data_quality": "OK" },
+        { "year": 2022, "min_rank": 9200, "min_score": 636, "plan_count": 20, "data_quality": "OK" }
+      ],
+      "plan_count_current": 20,
+      "current_total_candidates": 400000,
+      "expected": { "tier": "CHONG", "prob_min": 0.17, "prob_max": 0.22, "confidence": "HIGH" }
+    },
+    {
+      "case_id": "G-003",
+      "description": "保档：波动单位 + 考生留出 25% 余量 → BAO（安全闸门放行）",
+      "derivation": "values=[7000,12000,7500]；R0=8600；slope=(7000-7500)/2=-250 → R=8475；σ_raw=2248.5，cv=0.2545>0.15 → κ=0.2091 → σ=2248.5/(1-0.2091)=2843；z=(8475-5300)/2843=1.117 → P=0.868 → 区间属 BAO；安全闸门：min(values)=7000 ≥ 考生 5300×1.30=6890 ✅ → BAO；cv>0.10 → MEDIUM",
+      "student": { "rank": 5300, "subjects": ["物理", "化学", "生物"] },
+      "history": [
+        { "year": 2024, "min_rank": 7000, "min_score": 652, "plan_count": 20, "data_quality": "OK" },
+        { "year": 2023, "min_rank": 12000, "min_score": 610, "plan_count": 20, "data_quality": "OK" },
+        { "year": 2022, "min_rank": 7500, "min_score": 648, "plan_count": 20, "data_quality": "OK" }
+      ],
+      "plan_count_current": 20,
+      "current_total_candidates": 400000,
+      "expected": {
+        "tier": "BAO",
+        "prob_min": 0.85,
+        "prob_max": 0.89,
+        "confidence": "MEDIUM",
+        "warnings_include": ["VOLATILE_HISTORY"]
+      }
+    },
+    {
+      "case_id": "G-004",
+      "description": "垫档：稳定单位 + 考生留出远超 25% 余量 → DIAN（安全闸门放行）",
+      "derivation": "R_pred=9140、σ=300；z=(9140-6500)/300=8.8 → P→裁剪 0.98 → 区间属 DIAN；安全闸门：min(values)=9000 ≥ 6500×1.25=8125 ✅ → DIAN；N=3 全 OK、计划 20≥10、cv=0.022 → HIGH",
+      "student": { "rank": 6500, "subjects": ["物理", "化学", "生物"] },
+      "history": [
+        { "year": 2024, "min_rank": 9000, "min_score": 640, "plan_count": 20, "data_quality": "OK" },
+        { "year": 2023, "min_rank": 9500, "min_score": 632, "plan_count": 20, "data_quality": "OK" },
+        { "year": 2022, "min_rank": 9200, "min_score": 636, "plan_count": 20, "data_quality": "OK" }
+      ],
+      "plan_count_current": 20,
+      "current_total_candidates": 400000,
+      "expected": { "tier": "DIAN", "prob_min": 0.96, "prob_max": 0.99, "confidence": "HIGH" }
+    },
+    {
+      "case_id": "G-005",
+      "description": "边界：概率刚好越过 0.10（CHONG 下边界）",
+      "derivation": "R_pred=9140、σ=300；z=(9140-9520)/300=-1.2667 → P=0.1027 → CHONG（≥0.10）",
+      "student": { "rank": 9520, "subjects": ["物理", "化学", "生物"] },
+      "history": [
+        { "year": 2024, "min_rank": 9000, "min_score": 640, "plan_count": 20, "data_quality": "OK" },
+        { "year": 2023, "min_rank": 9500, "min_score": 632, "plan_count": 20, "data_quality": "OK" },
+        { "year": 2022, "min_rank": 9200, "min_score": 636, "plan_count": 20, "data_quality": "OK" }
+      ],
+      "plan_count_current": 20,
+      "current_total_candidates": 400000,
+      "expected": { "tier": "CHONG", "prob_min": 0.09, "prob_max": 0.12, "confidence": "HIGH" }
+    },
+    {
+      "case_id": "G-006",
+      "description": "边界：概率刚好越过 0.40（WEN 下边界）",
+      "derivation": "R_pred=9140、σ=300；z=(9140-9210)/300=-0.2333 → P=0.4078 → WEN（≥0.40）",
+      "student": { "rank": 9210, "subjects": ["物理", "化学", "生物"] },
+      "history": [
+        { "year": 2024, "min_rank": 9000, "min_score": 640, "plan_count": 20, "data_quality": "OK" },
+        { "year": 2023, "min_rank": 9500, "min_score": 632, "plan_count": 20, "data_quality": "OK" },
+        { "year": 2022, "min_rank": 9200, "min_score": 636, "plan_count": 20, "data_quality": "OK" }
+      ],
+      "plan_count_current": 20,
+      "current_total_candidates": 400000,
+      "expected": { "tier": "WEN", "prob_min": 0.39, "prob_max": 0.43, "confidence": "HIGH" }
+    },
+    {
+      "case_id": "G-007",
+      "description": "★ 安全闸门：概率 0.758 属 BAO 区间，但考生只比最差年份好 2%，留不出 25% 余量 → 降级 WEN",
+      "derivation": "R_pred=9140、σ=300；z=(9140-8930)/300=0.7 → P=0.758 → 区间属 BAO；闸门：min(values)=9000 < 8930×1.25=11162 ❌ → WEN + SAFETY_MARGIN_NOT_MET",
+      "student": { "rank": 8930, "subjects": ["物理", "化学", "生物"] },
+      "history": [
+        { "year": 2024, "min_rank": 9000, "min_score": 640, "plan_count": 20, "data_quality": "OK" },
+        { "year": 2023, "min_rank": 9500, "min_score": 632, "plan_count": 20, "data_quality": "OK" },
+        { "year": 2022, "min_rank": 9200, "min_score": 636, "plan_count": 20, "data_quality": "OK" }
+      ],
+      "plan_count_current": 20,
+      "current_total_candidates": 400000,
+      "expected": {
+        "tier": "WEN",
+        "prob_min": 0.74,
+        "prob_max": 0.78,
+        "confidence": "HIGH",
+        "warnings_include": ["SAFETY_MARGIN_NOT_MET"]
+      }
+    },
+    {
+      "case_id": "G-008",
+      "description": "★ 安全闸门：概率 0.933 属 DIAN 区间，但余量不足 → 降级 WEN",
+      "derivation": "R_pred=9140、σ=300；z=(9140-8690)/300=1.5 → P=0.9332 → 区间属 DIAN；闸门：min(values)=9000 < 8690×1.25=10862 ❌ → WEN",
+      "student": { "rank": 8690, "subjects": ["物理", "化学", "生物"] },
+      "history": [
+        { "year": 2024, "min_rank": 9000, "min_score": 640, "plan_count": 20, "data_quality": "OK" },
+        { "year": 2023, "min_rank": 9500, "min_score": 632, "plan_count": 20, "data_quality": "OK" },
+        { "year": 2022, "min_rank": 9200, "min_score": 636, "plan_count": 20, "data_quality": "OK" }
+      ],
+      "plan_count_current": 20,
+      "current_total_candidates": 400000,
+      "expected": {
+        "tier": "WEN",
+        "prob_min": 0.92,
+        "prob_max": 0.95,
+        "confidence": "HIGH",
+        "warnings_include": ["SAFETY_MARGIN_NOT_MET"]
+      }
+    },
+    {
+      "case_id": "G-009",
+      "description": "趋势：位次逐年变小（越来越热）→ 趋势修正把预测位次前移",
+      "derivation": "values(新→旧)=[9000,9250,9500]；R0=9175；slope=(9000-9500)/2=-250 → R=9175-125=9050；σ_raw=204.1 → σ=300；z=(9050-9000)/300=0.1667 → P=0.5662 → WEN",
+      "student": { "rank": 9000, "subjects": ["物理", "化学", "生物"] },
+      "history": [
+        { "year": 2024, "min_rank": 9000, "min_score": 640, "plan_count": 20, "data_quality": "OK" },
+        { "year": 2023, "min_rank": 9250, "min_score": 636, "plan_count": 20, "data_quality": "OK" },
+        { "year": 2022, "min_rank": 9500, "min_score": 632, "plan_count": 20, "data_quality": "OK" }
+      ],
+      "plan_count_current": 20,
+      "current_total_candidates": 400000,
+      "expected": { "tier": "WEN", "prob_min": 0.54, "prob_max": 0.59, "confidence": "HIGH" }
+    },
+    {
+      "case_id": "G-010",
+      "description": "趋势：位次逐年变大（越来越冷）→ 预测位次后移",
+      "derivation": "values=[9500,9250,9000]；R0=0.5*9500+0.3*9250+0.2*9000=9325；slope=(9500-9000)/2=250 → R=9450；σ_raw=204.1 → σ=300；z=(9450-9200)/300=0.8333 → P=0.7977 → 区间属 BAO；闸门：min(values)=9000 < 9200×1.25=11500 ❌ → WEN",
+      "student": { "rank": 9200, "subjects": ["物理", "化学", "生物"] },
+      "history": [
+        { "year": 2024, "min_rank": 9500, "min_score": 632, "plan_count": 20, "data_quality": "OK" },
+        { "year": 2023, "min_rank": 9250, "min_score": 636, "plan_count": 20, "data_quality": "OK" },
+        { "year": 2022, "min_rank": 9000, "min_score": 640, "plan_count": 20, "data_quality": "OK" }
+      ],
+      "plan_count_current": 20,
+      "current_total_candidates": 400000,
+      "expected": {
+        "tier": "WEN",
+        "prob_min": 0.78,
+        "prob_max": 0.82,
+        "confidence": "HIGH",
+        "warnings_include": ["SAFETY_MARGIN_NOT_MET"]
+      }
+    },
+    {
+      "case_id": "G-011",
+      "description": "计划数突增 50% → 门槛后移、概率上升（方向不可反）；但余量不足，仍不得称保底",
+      "derivation": "三年均 9000 → R0=9000，slope=0；Δplan=(30-20)/20=0.5（未超限幅）→ R=9000*(1+0.4*0.5)=10800；σ_raw=0 → σ=max(0,324,300)=324；z=(10800-10000)/324=2.4691 → P=0.9932 → 裁剪到 0.98 → 区间属 DIAN；闸门：min=9000 < 10000×1.25=12500 ❌ → WEN",
+      "student": { "rank": 10000, "subjects": ["物理", "化学", "生物"] },
+      "history": [
+        { "year": 2024, "min_rank": 9000, "min_score": 640, "plan_count": 20, "data_quality": "OK" },
+        { "year": 2023, "min_rank": 9000, "min_score": 640, "plan_count": 20, "data_quality": "OK" },
+        { "year": 2022, "min_rank": 9000, "min_score": 640, "plan_count": 20, "data_quality": "OK" }
+      ],
+      "plan_count_current": 30,
+      "current_total_candidates": 400000,
+      "expected": {
+        "tier": "WEN",
+        "prob_min": 0.96,
+        "prob_max": 0.98,
+        "confidence": "HIGH",
+        "warnings_include": ["SAFETY_MARGIN_NOT_MET"]
+      }
+    },
+    {
+      "case_id": "G-012",
+      "description": "计划数突减 50% → 门槛前移，概率下降",
+      "derivation": "三年均 9000 → R0=9000；Δplan=(10-20)/20=-0.5 → R=9000*(1-0.2)=7200；σ_raw=0 → σ=300；z=(7200-10000)/300=-9.33 → P≈0 → 裁剪到 0.02 → TOO_RISKY",
+      "student": { "rank": 10000, "subjects": ["物理", "化学", "生物"] },
+      "history": [
+        { "year": 2024, "min_rank": 9000, "min_score": 640, "plan_count": 20, "data_quality": "OK" },
+        { "year": 2023, "min_rank": 9000, "min_score": 640, "plan_count": 20, "data_quality": "OK" },
+        { "year": 2022, "min_rank": 9000, "min_score": 640, "plan_count": 20, "data_quality": "OK" }
+      ],
+      "plan_count_current": 10,
+      "current_total_candidates": 400000,
+      "expected": { "tier": "TOO_RISKY", "prob_min": 0.02, "prob_max": 0.03, "confidence": "HIGH" }
+    },
+    {
+      "case_id": "G-013",
+      "description": "大小年：三年位次剧烈震荡（cv≈0.25）→ 向 0.5 收缩 + 置信度上限 MEDIUM",
+      "derivation": "values=[7000,12000,7500]；R0=8600；slope=(7000-7500)/2=-250 → R=8475；σ_raw=pstdev=2248.5；cv=2248.5/8833.3=0.2546>0.15 → κ=min(0.35,0.2091)=0.2091；σ=2248.5；z=(8475-8500)/2248.5=-0.0111 → P=0.4956 → 收缩 P=0.5+(P-0.5)*(1-0.2091)=0.4965 → WEN；cv>0.10 → 非 HIGH，N=3 且计划≥5 → MEDIUM",
+      "student": { "rank": 8500, "subjects": ["物理", "化学", "生物"] },
+      "history": [
+        { "year": 2024, "min_rank": 7000, "min_score": 652, "plan_count": 20, "data_quality": "OK" },
+        { "year": 2023, "min_rank": 12000, "min_score": 610, "plan_count": 20, "data_quality": "OK" },
+        { "year": 2022, "min_rank": 7500, "min_score": 648, "plan_count": 20, "data_quality": "OK" }
+      ],
+      "plan_count_current": 20,
+      "current_total_candidates": 400000,
+      "expected": {
+        "tier": "WEN",
+        "prob_min": 0.47,
+        "prob_max": 0.52,
+        "confidence": "MEDIUM",
+        "warnings_include": ["VOLATILE_HISTORY"]
+      }
+    },
+    {
+      "case_id": "G-014",
+      "description": "数据缺失：仅 1 年历史 → 置信度 LOW + SINGLE_YEAR_DATA",
+      "derivation": "values=[9000]；权重归一化为 1.0 → R=9000；无趋势（n<2）；Δplan=0；σ_raw=0 → σ=max(0,270,300)=300；z=(9000-9000)/300=0 → P=0.5 → WEN；N=1 → LOW",
+      "student": { "rank": 9000, "subjects": ["物理", "化学", "生物"] },
+      "history": [
+        { "year": 2024, "min_rank": 9000, "min_score": 640, "plan_count": 20, "data_quality": "OK" }
+      ],
+      "plan_count_current": 20,
+      "current_total_candidates": 400000,
+      "expected": {
+        "tier": "WEN",
+        "prob_min": 0.45,
+        "prob_max": 0.55,
+        "confidence": "LOW",
+        "warnings_include": ["SINGLE_YEAR_DATA"]
+      }
+    },
+    {
+      "case_id": "G-015",
+      "description": "数据缺失：0 年历史且类比池不足 3 个 → 必须 NO_DATA（概率为 None，禁止编造）",
+      "derivation": "无任何本单位的可用历史；类比池仅 2 个（<3）→ 返回 probability=None、tier=NO_DATA、confidence=NO_DATA",
+      "student": { "rank": 9000, "subjects": ["物理", "化学", "生物"] },
+      "history": [],
+      "plan_count_current": 20,
+      "current_total_candidates": 400000,
+      "analog_pool": [
+        { "unit_key": "zhejiang-2001-NA-100111", "min_rank": 9000, "level_tags": ["211", "双一流"], "discipline": "计算机类", "college_province": "zhejiang" },
+        { "unit_key": "zhejiang-2002-NA-100112", "min_rank": 9500, "level_tags": ["211", "双一流"], "discipline": "计算机类", "college_province": "zhejiang" }
+      ],
+      "expected": {
+        "tier": "NO_DATA",
+        "prob_is_none": true,
+        "confidence": "NO_DATA",
+        "warnings_include": ["NO_HISTORY"]
+      }
+    },
+    {
+      "case_id": "G-016",
+      "description": "数据缺失：0 年历史但类比池 ≥3 → 走 Step 0 类比，强制 LOW，且必须打 NO_HISTORY",
+      "derivation": "类比池 3 个 [9000,9500,9200] → R_pred=median=9200；σ_raw=pstdev=204.1 → σ=max(204.1,276,300)=300；z=(9200-9000)/300=0.6667 → P=0.7475 —— **略低于 0.75 边界，故为 WEN 而非 BAO**（分层区间左闭右开）；置信度强制 LOW",
+      "student": { "rank": 9000, "subjects": ["物理", "化学", "生物"] },
+      "history": [],
+      "plan_count_current": 20,
+      "current_total_candidates": 400000,
+      "analog_pool": [
+        { "unit_key": "zhejiang-2001-NA-100111", "min_rank": 9000, "level_tags": ["211", "双一流"], "discipline": "计算机类", "college_province": "zhejiang" },
+        { "unit_key": "zhejiang-2002-NA-100112", "min_rank": 9500, "level_tags": ["211", "双一流"], "discipline": "计算机类", "college_province": "zhejiang" },
+        { "unit_key": "zhejiang-2003-NA-100113", "min_rank": 9200, "level_tags": ["211", "双一流"], "discipline": "计算机类", "college_province": "zhejiang" }
+      ],
+      "expected": {
+        "tier": "WEN",
+        "prob_min": 0.72,
+        "prob_max": 0.77,
+        "confidence": "LOW",
+        "warnings_include": ["NO_HISTORY"]
+      }
+    },
+    {
+      "case_id": "G-017",
+      "description": "质量：MISSING_RANK 与 SUSPECT 行必须被丢弃，只剩 1 年可用 → LOW",
+      "derivation": "2024 行 min_rank=null（MISSING_RANK）、2023 行 quality=SUSPECT 均被丢弃；仅 2022(9200, 计划20) 可用 → R=9200；σ=300；z=(9200-9200)/300=0 → P=0.5 → WEN；N=1 → LOW",
+      "student": { "rank": 9200, "subjects": ["物理", "化学", "生物"] },
+      "history": [
+        { "year": 2024, "min_rank": null, "min_score": null, "plan_count": 20, "data_quality": "MISSING_RANK" },
+        { "year": 2023, "min_rank": 9000, "min_score": 640, "plan_count": 20, "data_quality": "SUSPECT" },
+        { "year": 2022, "min_rank": 9200, "min_score": 636, "plan_count": 20, "data_quality": "OK" }
+      ],
+      "plan_count_current": 20,
+      "current_total_candidates": 400000,
+      "expected": {
+        "tier": "WEN",
+        "prob_min": 0.45,
+        "prob_max": 0.55,
+        "confidence": "LOW",
+        "warnings_include": ["SINGLE_YEAR_DATA", "SUSPECT_DATA_IGNORED", "MISSING_RANK_IGNORED"]
+      }
+    },
+    {
+      "case_id": "G-018",
+      "description": "★ 方向陷阱回归：与 G-001 同一单位，但考生位次更差（10000 > 9140）→ 绝不允许判成稳/保",
+      "derivation": "R_pred=9140、σ=300；z=(9140-10000)/300=-2.8667 → P=0.0021 → 裁剪到 0.02 → TOO_RISKY。【文档勘误】DOMAIN_RULES §7 的 G-001 示例把该组合写成『考生位次稳定优于目标位次，应为稳档』，与 §2.1『位次数值越小越靠前』及 §6.2 公式矛盾；本用例锁定正确方向。",
+      "student": { "rank": 10000, "subjects": ["物理", "化学", "生物"] },
+      "history": [
+        { "year": 2024, "min_rank": 9000, "min_score": 640, "plan_count": 20, "data_quality": "OK" },
+        { "year": 2023, "min_rank": 9500, "min_score": 632, "plan_count": 20, "data_quality": "OK" },
+        { "year": 2022, "min_rank": 9200, "min_score": 636, "plan_count": 20, "data_quality": "OK" }
+      ],
+      "plan_count_current": 20,
+      "current_total_candidates": 400000,
+      "expected": { "tier": "TOO_RISKY", "prob_min": 0.02, "prob_max": 0.05, "confidence": "HIGH" }
+    },
+    {
+      "case_id": "G-019",
+      "description": "质量：SUSPECT 行被丢弃后仅剩 1 年 → LOW + SUSPECT_DATA_IGNORED",
+      "derivation": "2024 行 quality=SUSPECT 丢弃；仅 2023(9200) 可用 → R=9200；σ=300；z=(9200-9200)/300=0 → P=0.5 → WEN；N=1 → LOW",
+      "student": { "rank": 9200, "subjects": ["物理", "化学", "生物"] },
+      "history": [
+        { "year": 2024, "min_rank": 9000, "min_score": 640, "plan_count": 20, "data_quality": "SUSPECT" },
+        { "year": 2023, "min_rank": 9200, "min_score": 636, "plan_count": 20, "data_quality": "OK" }
+      ],
+      "plan_count_current": 20,
+      "current_total_candidates": 400000,
+      "expected": {
+        "tier": "WEN",
+        "prob_min": 0.45,
+        "prob_max": 0.55,
+        "confidence": "LOW",
+        "warnings_include": ["SUSPECT_DATA_IGNORED"]
+      }
+    },
+    {
+      "case_id": "G-020",
+      "description": "质量：MISSING_RANK 行被丢弃后剩 2 年 → MEDIUM（权重按可用年份重归一化）",
+      "derivation": "2024 行无位次丢弃；可用 [2023:9200, 2022:9400]；权重 [0.5,0.3] 归一化为 [0.625,0.375] → R0=9275；slope=(9200-9400)/1=-200 → R=9175；σ: pstdev=100，n=2 用 MAD 兜底 max(100, 1.4826*100)=148.3 → σ=max(148.3,275.3,300)=300；z=(9175-9200)/300=-0.0833 → P=0.4668 → WEN；N=2 计划 20≥5 → MEDIUM",
+      "student": { "rank": 9200, "subjects": ["物理", "化学", "生物"] },
+      "history": [
+        { "year": 2024, "min_rank": null, "min_score": null, "plan_count": 20, "data_quality": "MISSING_RANK" },
+        { "year": 2023, "min_rank": 9200, "min_score": 636, "plan_count": 20, "data_quality": "OK" },
+        { "year": 2022, "min_rank": 9400, "min_score": 630, "plan_count": 20, "data_quality": "OK" }
+      ],
+      "plan_count_current": 20,
+      "current_total_candidates": 400000,
+      "expected": {
+        "tier": "WEN",
+        "prob_min": 0.43,
+        "prob_max": 0.50,
+        "confidence": "MEDIUM",
+        "warnings_include": ["MISSING_RANK_IGNORED"]
+      }
+    },
+    {
+      "case_id": "G-021",
+      "description": "防数据泄漏：本年（2025）结果行不得进入预测，只允许 year < target.year",
+      "derivation": "历史含 2025 行（同单位、min_rank 3000）与 2024/2023 行；若泄漏则 R_pred 会被拉到 ~3000、概率暴跌。正确结果应只用 [2024:9000, 2023:9500] → 与 G-001 同口径 → R=9140 附近、WEN",
+      "student": { "rank": 9000, "subjects": ["物理", "化学", "生物"] },
+      "history": [
+        { "year": 2025, "min_rank": 3000, "min_score": 690, "plan_count": 20, "data_quality": "OK" },
+        { "year": 2024, "min_rank": 9000, "min_score": 640, "plan_count": 20, "data_quality": "OK" },
+        { "year": 2023, "min_rank": 9500, "min_score": 632, "plan_count": 20, "data_quality": "OK" },
+        { "year": 2022, "min_rank": 9200, "min_score": 636, "plan_count": 20, "data_quality": "OK" }
+      ],
+      "plan_count_current": 20,
+      "current_total_candidates": 400000,
+      "expected": { "tier": "WEN", "prob_min": 0.55, "prob_max": 0.72, "confidence": "HIGH" }
+    }
+  ]
+}

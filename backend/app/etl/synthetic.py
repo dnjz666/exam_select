@@ -1,4 +1,4 @@
-"""确定性模拟数据生成器（M1）。
+"""确定性模拟数据生成器（M1 建立，M2 扩展时间轴以支持回测）。
 
 ★ 合规声明（AGENTS.md §12 / DOMAIN_RULES.md §6）
 - 院校名 / 专业名来自 `etl/catalog.py`（公开信息）；
@@ -6,20 +6,37 @@
   ``verified=0``，``source_url`` 为 ``synthetic://`` 前缀的可审计标记；
 - **严禁**用于真实志愿填报。
 
+时间轴（ADR-009）
+-----------------
+============  ==================================================
+``2026``      **填报年**：投档单位与"今年计划"所在年（``CURRENT_YEAR``）
+``2022–2025`` 历史投档年（``HISTORY_YEARS``），其中 2025 为**回测地面真值年**
+``2022–2026`` 招生计划快照年（``PLAN_YEARS``）
+============  ==================================================
+
+因此两条路径都能拿到 N=3 年历史，且互不串年（模型强制 ``year < target.year``，防数据泄漏）：
+
+- **线上预测（2026 考生）**：用 2023 / 2024 / 2025 → 预测 2026；
+- **回测（Y=2025）**：用 2022 / 2023 / 2024 → 预测 2025，与 2025 实际位次比对。
+
 确定性（M1 完成定义）
-- 单一种子 ``SEED`` 驱动 ``random.Random``；生成顺序完全由**排序后的名册与固定循环**决定，
-  不依赖 dict/set 遍历顺序 → 相同 seed 必产出逐字节一致的数据（``SyntheticDataset.digest()`` 校验）。
+--------------------
+单一种子 ``SEED`` 驱动 ``random.Random``；生成顺序完全由**排序后的名册与固定循环**决定，
+不依赖 dict/set 遍历顺序 → 相同 seed 必产出逐字节一致的数据（``SyntheticDataset.digest()``）。
 
 注入的已知规律（供 M2 算法与回测验证，``injections`` 随数据集返回）
-1. **大小年**：约 10% 单位的历史位次剧烈震荡（归一化后 cv > 0.15）；
-2. **计划突增 / 突减**：约 8% 单位的 2025 计划相对 2024 变动 ±45%~60%；
-3. **新增专业**：约 7% 的 2025 单位**没有任何历史行**（M2 走 Step 0 回退，禁编造概率）；
-4. **小计划**：约 6% 单位计划数 < 5（触发 PLAN_TOO_SMALL + 降置信度）；
-5. **征集志愿**：约 3% 历史行来自征集（``is_collected=1`` + ``data_quality=COLLECTED``）；
-6. **派生位次**：约 12% 历史行为 ``DERIVED``（由最低分反查，M2 需 ×0.9 降权）。
-
-分数口径：各省满分与"3+3"计分规则一致（上海 660、海南标准分 900、其余 750），
-数值均为模拟。位次口径统一：**数值越小越靠前**（DOMAIN_RULES.md §2.1）。
+------------------------------------------------------------------
+1. **大小年**：约 10% 单位的历史位次逐年交替震荡（任一 3 年窗口 cv > 0.15）；
+2. **真实趋势**：约 15% 单位逐年变热（位次变小 ×0.965/年）或变冷（×1.035/年），
+   供 §6.2 Step 3 的趋势修正被真实验证；
+3. **计划数因果**：计划相对上一年 ±10%（另有约 8% 单位在 2026 相对 2025、约 8% 在 2025 相对 2024
+   突增/突减 ±45%~60%），且**按真实弹性 0.35 影响投档位次**（计划增加 → 门槛后移）——
+   ⚠️ 弹性刻意与模型的 β=0.4 不同，以便回测检验模型估计而非自我实现（M2 修的真实缺陷）；
+4. **新增专业**：约 7% 单位"2025 年新增"（**无 2022–2024 历史**，但有 2025 实际 → 回测可考 Step 0）；
+   另有约 7% 单位"2026 年新增"（**完全没有历史行**）；
+5. **小计划**：约 6% 单位计划数 < 5（触发 PLAN_TOO_SMALL + 降置信度）；
+6. **征集志愿**：约 3% 历史行来自征集（``is_collected=1`` + ``data_quality=COLLECTED``）；
+7. **派生位次**：约 12% 历史行为 ``DERIVED``（由最低分反查，M2 需 ×0.9 降权）。
 """
 
 from __future__ import annotations
@@ -35,23 +52,32 @@ from app.core.rules import RULES, get_rule
 from app.etl import catalog
 
 # ---------------------------------------------------------------------------
-# 常量
+# 常量与时间轴
 # ---------------------------------------------------------------------------
 SEED: int = 20250915
-CURRENT_YEAR: int = 2025
-YEARS: tuple[int, ...] = (2023, 2024, 2025)
-HISTORY_YEARS: tuple[int, ...] = (2023, 2024)
+CURRENT_YEAR: int = 2026  # 填报年
+HISTORY_YEARS: tuple[int, ...] = (2022, 2023, 2024, 2025)  # 历史投档年
+PLAN_YEARS: tuple[int, ...] = (2022, 2023, 2024, 2025, 2026)  # 计划快照年
+GROUND_TRUTH_YEAR: int = 2025  # 回测目标年（用 ≤2024 预测 2025）
 SOURCE_PREFIX = "synthetic://exam_select/etl/synthetic.py"
 
 #: 注入概率（模拟数据的"已知规律"密度，见模块 docstring）
 P_VOLATILE = 0.10
-P_PLAN_SPIKE = 0.08
-P_NEW_MAJOR = 0.07
+P_PLAN_SPIKE_LIVE = 0.08  # 2026 vs 2025
+P_PLAN_SPIKE_BACKTEST = 0.08  # 2025 vs 2024
+P_NEW_MAJOR_2025 = 0.07  # 2025 年新增：无 2022–2024 历史，有 2025 实际
+P_NEW_MAJOR_2026 = 0.07  # 2026 年新增：无任何历史
 P_SMALL_PLAN = 0.06
 P_COLLECTED = 0.03
 P_DERIVED = 0.12
+P_TREND = 0.15  # 约 15% 单位存在**真实的**逐年变热/变冷趋势（供趋势修正被验证）
 
-#: 每个省参与模拟的院校上限（本地全部 + 全国强校 + 外省抽样）
+#: 真实"计划弹性"：计划数 +10% → 投档位次后移约 3.5%（与模型 β=0.4 刻意不同，
+#: 以便回测检验模型对计划信号的估计，而不是把模型的参数写回数据里）
+TRUE_PLAN_ELASTICITY = 0.35
+#: 真实趋势幅度（逐年）：变热 ×0.965 / 变冷 ×1.035
+TRUE_TREND_STEP = 0.035
+
 MAX_COLLEGES_PER_PROVINCE = 110
 OUT_OF_PROVINCE_SAMPLE = 14
 
@@ -59,7 +85,7 @@ OUT_OF_PROVINCE_SAMPLE = 14
 class ProvinceProfile(NamedTuple):
     """省份画像：考生规模（模拟，量级贴近真实）+ 分数分布参数（模拟）。"""
 
-    candidates_2023: int
+    candidates_base: int  # 基年（HISTORY_YEARS[0]）考生规模
     annual_growth: float
     score_mean: float
     score_sd: float
@@ -70,15 +96,14 @@ class ProvinceProfile(NamedTuple):
 
 #: 六省市画像。考生规模量级参照真实公告的**数量级**（数值本身为模拟值）。
 PROVINCE_PROFILES: dict[str, ProvinceProfile] = {
-    "zhejiang": ProvinceProfile(390_000, 0.020, 500, 82, 1.30, 750, 260),
-    "shandong": ProvinceProfile(700_000, 0.030, 470, 85, 1.32, 750, 240),
-    "shanghai": ProvinceProfile(54_000, 0.030, 505, 78, 1.25, 660, 200),
-    "beijing": ProvinceProfile(67_000, 0.050, 520, 80, 1.28, 750, 240),
-    "tianjin": ProvinceProfile(70_000, 0.020, 500, 82, 1.30, 750, 250),
-    "hainan": ProvinceProfile(74_000, 0.040, 480, 85, 1.30, 900, 300),
+    "zhejiang": ProvinceProfile(375_000, 0.020, 500, 82, 1.30, 750, 260),
+    "shandong": ProvinceProfile(660_000, 0.030, 470, 85, 1.32, 750, 240),
+    "shanghai": ProvinceProfile(51_000, 0.030, 505, 78, 1.25, 660, 200),
+    "beijing": ProvinceProfile(61_000, 0.050, 520, 80, 1.28, 750, 240),
+    "tianjin": ProvinceProfile(67_000, 0.020, 500, 82, 1.30, 750, 250),
+    "hainan": ProvinceProfile(68_000, 0.040, 480, 85, 1.30, 900, 300),
 }
 
-#: 层次 → 计划数区间（模拟）
 _TIER_PLAN_BAND: dict[str, tuple[int, int]] = {
     "985": (20, 80),
     "211": (15, 60),
@@ -86,10 +111,9 @@ _TIER_PLAN_BAND: dict[str, tuple[int, int]] = {
     "PROV": (8, 40),
     "PRIV": (10, 60),
 }
-#: 层次 → 学费区间（元/年，模拟）；民办/中外合作显著更高（名师铁律 10 必须在卡片明示）
 _TUITION_PUBLIC = (4500, 7500)
 _TUITION_PRIVATE = (18_000, 65_000)
-_TUITION_SPECIAL = (8_000, 15_000)  # 医药 / 艺术类公办专业上浮
+_TUITION_SPECIAL = (8_000, 15_000)
 
 
 # ---------------------------------------------------------------------------
@@ -99,18 +123,13 @@ def _source() -> str:
     return f"{SOURCE_PREFIX}?seed={SEED}"
 
 
-def _norm_cdf(z: float) -> float:
-    """标准正态 CDF：Φ(z) = 0.5·erfc(-z/√2)。"""
-    return 0.5 * math.erfc(-z / math.sqrt(2.0))
-
-
 def _upper_tail(z: float) -> float:
-    """P(X ≥ z) = 1 - Φ(z)。"""
+    """P(X ≥ z) = 1 − Φ(z) = 0.5·erfc(z/√2)。"""
     return 0.5 * math.erfc(z / math.sqrt(2.0))
 
 
 def _score_for_rank(table: list[tuple[int, int]], rank: int) -> int:
-    """按一分一段表把位次线性插值回分数（``table`` = [(score, cumulative_rank)] 按分数降序）。"""
+    """按一分一段表把位次线性插值回分数（``table`` = [(score, cumulative)] 按分数降序）。"""
     if rank <= table[0][1]:
         return table[0][0]
     if rank >= table[-1][1]:
@@ -147,7 +166,7 @@ class SyntheticDataset:
     admission_units: list[dict] = field(default_factory=list)
     admission_plans: list[dict] = field(default_factory=list)
     admission_history: list[dict] = field(default_factory=list)
-    #: 注入样本清单（unit_key 列表），供 M2 回测与 tests 断言使用
+    #: 注入样本清单（unit_key / unit_key@year 列表），供 M2 回测与 tests 断言使用
     injections: dict[str, list[str]] = field(default_factory=dict)
     seed: int = SEED
 
@@ -168,7 +187,9 @@ class SyntheticDataset:
         """全表内容摘要：相同 seed 必须得到相同摘要（幂等与确定性验收）。"""
         h = hashlib.sha256()
         for name in self._TABLES:
-            rows = sorted(getattr(self, name), key=lambda r: json.dumps(r, sort_keys=True, ensure_ascii=False))
+            rows = sorted(
+                getattr(self, name), key=lambda r: json.dumps(r, sort_keys=True, ensure_ascii=False)
+            )
             h.update(f"##{name}\n".encode())
             for row in rows:
                 h.update(json.dumps(row, sort_keys=True, ensure_ascii=False).encode())
@@ -212,14 +233,16 @@ def _generate_colleges(rng: random.Random) -> tuple[list[dict], dict[str, dict]]
             "city": college.city,
             "level_tags": json.dumps(list(catalog.TIER_TAGS[college.tier]), ensure_ascii=False),
             "college_type": college.college_type,
-            "affiliation": "教育部" if college.tier == "985" else ("省属" if college.tier != "PRIV" else "民办"),
+            "affiliation": "教育部"
+            if college.tier == "985"
+            else ("省属" if college.tier != "PRIV" else "民办"),
             "is_public": catalog.TIER_IS_PUBLIC[college.tier],
             "postgrad_rate": postgrad,
             "master_points": masters,
             "doctor_points": doctors,
             "source_url": _source(),
             "is_synthetic": True,
-            "_tier": college.tier,  # 生成期辅助字段（入库前剔除）
+            "_tier": college.tier,
         }
         rows.append(row)
         index[college_id] = row
@@ -237,12 +260,16 @@ def _generate_majors(rng: random.Random) -> tuple[list[dict], dict[str, dict]]:
             "name": major.name,
             "category": major.category,
             "discipline": major.discipline,
-            "degree": "艺术学" if major.category == "艺术学" else ("医学" if major.category == "医学" else "学士"),
-            "duration": 5 if major.discipline in ("临床医学类", "口腔医学类", "中医学类", "建筑类") else 4,
+            "degree": "艺术学"
+            if major.category == "艺术学"
+            else ("医学" if major.category == "医学" else "学士"),
+            "duration": 5
+            if major.discipline in ("临床医学类", "口腔医学类", "中医学类", "建筑类")
+            else 4,
             "subject_eval_grade": rng.choice(["A+", "A", "A-", "B+", "B", "B-", "C+", None]),
             "source_url": _source(),
             "is_synthetic": True,
-            "_mode": major.subject_mode,  # 生成期辅助字段（入库前剔除）
+            "_mode": major.subject_mode,
             "_subjects": list(major.subjects),
         }
         rows.append(row)
@@ -260,8 +287,8 @@ def _generate_score_tables() -> tuple[list[dict], list[dict], dict[tuple[str, in
 
     for province in sorted(PROVINCE_PROFILES):
         profile = PROVINCE_PROFILES[province]
-        for offset, year in enumerate(YEARS):
-            total = int(round(profile.candidates_2023 * (1 + profile.annual_growth) ** offset))
+        for offset, year in enumerate(PLAN_YEARS):
+            total = int(round(profile.candidates_base * (1 + profile.annual_growth) ** offset))
             stats.append(
                 {
                     "province": province,
@@ -280,7 +307,7 @@ def _generate_score_tables() -> tuple[list[dict], list[dict], dict[tuple[str, in
                 z = u if u >= 0 else u / profile.score_tail_mult  # 下尾加长，贴近真实分布
                 cum = int(round(total * _upper_tail(z)))
                 cum = max(prev_cum, min(total, cum))
-                if not table:  # 最高分至少 1 人
+                if not table:
                     cum = max(1, cum)
                     prev_cum = 0
                 table.append((score, cum))
@@ -309,7 +336,7 @@ def _generate_score_tables() -> tuple[list[dict], list[dict], dict[tuple[str, in
 
 
 # ---------------------------------------------------------------------------
-# 生成：投档单位 / 计划 / 历史
+# 生成：投档单位 / 计划 / 历史（含地面真值）
 # ---------------------------------------------------------------------------
 def _candidate_colleges(province: str, college_index: dict[str, dict], rng: random.Random) -> list[dict]:
     local = [c for c in college_index.values() if c["province"] == province]
@@ -352,8 +379,12 @@ def _generate_units(
     history: list[dict] = []
     injections: dict[str, list[str]] = {
         "volatile": [],
-        "plan_spike": [],
-        "new_major": [],
+        "trend_hot": [],
+        "trend_cold": [],
+        "plan_spike_live": [],
+        "plan_spike_backtest": [],
+        "new_major_2025": [],
+        "new_major_2026": [],
         "small_plan": [],
         "collected": [],
         "derived": [],
@@ -363,8 +394,6 @@ def _generate_units(
     for province in sorted(RULES):
         rule = get_rule(province)
         batch = rule.main_batch()
-        profile = PROVINCE_PROFILES[province]
-        total_current = stats_index[(province, CURRENT_YEAR)]
         candidates = _candidate_colleges(province, college_index, rng)
 
         for college in candidates:
@@ -401,24 +430,36 @@ def _generate_units(
 
                 for major in majors_in_group:
                     unit_key = f"{province}-{college['code']}-{group_code or 'NA'}-{major['code']}"
-                    unit_id = f"{province}-{CURRENT_YEAR}-{college['code']}-{group_code or 'NA'}-{major['code']}"
+                    unit_id = (
+                        f"{province}-{CURRENT_YEAR}-{college['code']}-{group_code or 'NA'}-{major['code']}"
+                    )
 
-                    # ---- 计划数（含小计划与突增注入）
+                    # ---- 各年计划数
                     lo, hi = _TIER_PLAN_BAND[tier]
                     base_plan = rng.randint(lo, hi)
-                    plan_2024 = max(1, int(round(base_plan * rng.uniform(0.9, 1.1))))
-                    spike = rng.random() < P_PLAN_SPIKE
-                    if spike:
-                        factor = rng.choice([-0.55, -0.45, 0.45, 0.60])
-                        plan_2025 = max(1, int(round(plan_2024 * (1 + factor))))
-                    else:
-                        plan_2025 = max(1, int(round(base_plan * rng.uniform(0.9, 1.1))))
                     small = rng.random() < P_SMALL_PLAN
-                    if small:
-                        plan_2025 = rng.randint(2, 4)
-                        plan_2024 = max(1, plan_2025 + rng.randint(-1, 1))
+                    plan_by_year: dict[int, int] = {}
+                    for year in PLAN_YEARS:
+                        if small:
+                            value = rng.randint(2, 4)
+                        else:
+                            value = max(1, int(round(base_plan * rng.uniform(0.9, 1.1))))
+                        plan_by_year[year] = value
 
-                    category = major["category"]
+                    spike_backtest = rng.random() < P_PLAN_SPIKE_BACKTEST
+                    if spike_backtest and not small:
+                        factor = rng.choice([-0.55, -0.45, 0.45, 0.60])
+                        plan_by_year[GROUND_TRUTH_YEAR] = max(
+                            1, int(round(plan_by_year[GROUND_TRUTH_YEAR - 1] * (1 + factor)))
+                        )
+                    spike_live = rng.random() < P_PLAN_SPIKE_LIVE
+                    if spike_live and not small:
+                        factor = rng.choice([-0.55, -0.45, 0.45, 0.60])
+                        plan_by_year[CURRENT_YEAR] = max(
+                            1, int(round(plan_by_year[CURRENT_YEAR - 1] * (1 + factor)))
+                        )
+
+                    plan_current = plan_by_year[CURRENT_YEAR]
                     units.append(
                         {
                             "unit_id": unit_id,
@@ -435,44 +476,48 @@ def _generate_units(
                                 {"mode": key[0], "subjects": list(key[1])}, ensure_ascii=False
                             ),
                             "subject_req_status": "PARSED",
-                            "plan_count": plan_2025,
-                            "tuition": _pick_tuition(tier, category, rng),
+                            "plan_count": plan_current,
+                            "tuition": _pick_tuition(tier, major["category"], rng),
                             "duration": major["duration"],
                             "campus": college["city"],
-                            "remarks": "模拟数据；院校专业组内服从调剂" if batch.has_major_adjustment else "模拟数据",
+                            "remarks": "模拟数据；院校专业组内服从调剂"
+                            if batch.has_major_adjustment
+                            else "模拟数据",
                             "is_synthetic": True,
                             "source_url": _source(),
-                            "_plan_2024": plan_2024,  # 生成期辅助字段（入库前剔除）
                         }
                     )
-                    if spike:
-                        injections["plan_spike"].append(unit_key)
+                    if spike_backtest:
+                        injections["plan_spike_backtest"].append(unit_key)
+                    if spike_live:
+                        injections["plan_spike_live"].append(unit_key)
                     if small:
                         injections["small_plan"].append(unit_key)
 
-                    # ---- 计划快照（逐年）
-                    plan_by_year: dict[int, int] = {}
-                    for year in YEARS:
-                        if year == CURRENT_YEAR:
-                            value = plan_2025
-                        elif year == 2024:
-                            value = plan_2024
-                        else:
-                            value = max(1, int(round(plan_2024 * rng.uniform(0.9, 1.1))))
-                        plan_by_year[year] = value
+                    for year in PLAN_YEARS:
                         plans.append(
                             {
                                 "unit_key": unit_key,
                                 "year": year,
-                                "plan_count": value,
+                                "plan_count": plan_by_year[year],
                                 "is_synthetic": True,
                                 "source_url": _source(),
                             }
                         )
 
-                    # ---- 新增专业：无任何历史行（M2 必须走 Step 0 回退，禁编造）
-                    if rng.random() < P_NEW_MAJOR:
-                        injections["new_major"].append(unit_key)
+                    # ---- 新增专业：2025 年新增（无 2022–2024 历史，有 2025 实际）
+                    #                2026 年新增（完全没有历史行）
+                    roll = rng.random()
+                    if roll < P_NEW_MAJOR_2026:
+                        first_history_year = None
+                        injections["new_major_2026"].append(unit_key)
+                    elif roll < P_NEW_MAJOR_2026 + P_NEW_MAJOR_2025:
+                        first_history_year = GROUND_TRUTH_YEAR
+                        injections["new_major_2025"].append(unit_key)
+                    else:
+                        first_history_year = HISTORY_YEARS[0]
+
+                    if first_history_year is None:
                         continue
 
                     # ---- 历史位次（含大小年注入）
@@ -483,24 +528,43 @@ def _generate_units(
                         frac *= 1.45
                     frac = min(frac, 0.95)
                     volatile = rng.random() < P_VOLATILE
+                    phase = rng.choice([0, 1]) if volatile else 0
                     if volatile:
                         injections["volatile"].append(unit_key)
-                        # 大小年方向：随机指定哪一年是"冷年"（位次异常靠后），
-                        # 两年必须一大一小，否则只是单向下滑而非震荡
-                        cold_year = rng.choice(list(HISTORY_YEARS))
+                    # 真实趋势：一部分单位逐年变热（位次变小）或变冷（位次变大）
+                    trend_direction = 0
+                    if not volatile and rng.random() < P_TREND:
+                        trend_direction = rng.choice([-1, 1])
+                        injections["trend_hot" if trend_direction < 0 else "trend_cold"].append(unit_key)
 
-                    for year in HISTORY_YEARS:
+                    for index, year in enumerate(HISTORY_YEARS):
+                        if year < first_history_year:
+                            continue
                         total_year = stats_index[(province, year)]
                         rank_base = frac * total_year
-                        if volatile:
-                            mult = (
-                                rng.uniform(1.25, 1.45)
-                                if year == cold_year
-                                else rng.uniform(0.70, 0.80)
-                            )
+                        if volatile and (index + phase) % 2 == 0:
+                            mult = rng.uniform(1.25, 1.45)  # 冷年：位次异常靠后
+                        elif volatile:
+                            mult = rng.uniform(0.70, 0.80)  # 热年
                         else:
                             mult = rng.uniform(0.94, 1.06)
-                        min_rank = max(1, int(round(rank_base * mult)))
+
+                        # ★ 计划数是**真实信号**：计划增加 → 门槛后移（位次数值变大）
+                        plan_effect = 1.0
+                        previous_plan = plan_by_year.get(year - 1)
+                        if previous_plan:
+                            plan_delta = (plan_by_year[year] - previous_plan) / previous_plan
+                            plan_delta = max(-0.5, min(0.5, plan_delta))
+                            plan_effect = 1 + TRUE_PLAN_ELASTICITY * plan_delta
+
+                        # ★ 真实趋势：逐年单调漂移
+                        trend_effect = (
+                            (1 + TRUE_TREND_STEP) ** (index * trend_direction)
+                            if trend_direction
+                            else 1.0
+                        )
+
+                        min_rank = max(1, int(round(rank_base * mult * plan_effect * trend_effect)))
 
                         collected = rng.random() < P_COLLECTED
                         if collected:
@@ -564,7 +628,7 @@ def generate(seed: int = SEED) -> SyntheticDataset:
         college_index, major_index, lookups, stats_index, rng
     )
 
-    dataset = SyntheticDataset(
+    return SyntheticDataset(
         colleges=[{k: v for k, v in row.items() if not k.startswith("_")} for row in colleges],
         majors=[{k: v for k, v in row.items() if not k.startswith("_")} for row in majors],
         score_rank_table=score_rows,
@@ -575,4 +639,3 @@ def generate(seed: int = SEED) -> SyntheticDataset:
         injections={k: sorted(set(v)) for k, v in injections.items()},
         seed=seed,
     )
-    return dataset

@@ -1,0 +1,91 @@
+{
+  "kind": "filter",
+  "note": "硬约束过滤黄金用例（AGENTS.md §6.4）。每条为人工判定的可解释结论：通过 or 具体 rule_code。",
+  "cases": [
+    {
+      "case_id": "G-022",
+      "description": "选科 all_of：要求物理+化学，考生选了物理化学生物 → 通过",
+      "student": { "subjects": ["物理", "化学", "生物"] },
+      "unit": { "subject_requirement": { "mode": "all_of", "subjects": ["物理", "化学"] } },
+      "expected": { "passed": true }
+    },
+    {
+      "case_id": "G-023",
+      "description": "选科 all_of：要求物理+化学，考生只有物理 → 剔除",
+      "student": { "subjects": ["物理", "生物", "地理"] },
+      "unit": { "subject_requirement": { "mode": "all_of", "subjects": ["物理", "化学"] } },
+      "expected": { "passed": false, "rule_code": "SUBJECT_NOT_MATCHED" }
+    },
+    {
+      "case_id": "G-024",
+      "description": "选科 any_of：要求物理或历史，考生有历史 → 通过",
+      "student": { "subjects": ["历史", "思想政治", "地理"] },
+      "unit": { "subject_requirement": { "mode": "any_of", "subjects": ["物理", "历史"] } },
+      "expected": { "passed": true }
+    },
+    {
+      "case_id": "G-025",
+      "description": "选科 any_of：要求物理或历史，考生两门都没有 → 剔除",
+      "student": { "subjects": ["化学", "生物", "地理"] },
+      "unit": { "subject_requirement": { "mode": "any_of", "subjects": ["物理", "历史"] } },
+      "expected": { "passed": false, "rule_code": "SUBJECT_NOT_MATCHED" }
+    },
+    {
+      "case_id": "G-026",
+      "description": "选科 none：不限选考 → 通过",
+      "student": { "subjects": ["历史", "思想政治", "地理"] },
+      "unit": { "subject_requirement": { "mode": "none", "subjects": [] } },
+      "expected": { "passed": true }
+    },
+    {
+      "case_id": "G-027",
+      "description": "体检：考生色盲，单位声明『色盲不宜』→ 剔除（硬约束，不能只在风险里提示）",
+      "student": { "subjects": ["物理", "化学", "生物"], "physical": { "color_blindness": true } },
+      "unit": { "physical_requirements": ["色盲不宜报考"] },
+      "expected": { "passed": false, "rule_code": "PHYSICAL_LIMIT" }
+    },
+    {
+      "case_id": "G-028",
+      "description": "单科成绩：要求英语 ≥ 120，考生 110 → 剔除",
+      "student": { "subjects": ["物理", "化学", "生物"], "single_subject_scores": { "英语": 110 } },
+      "unit": { "single_subject_min": { "英语": 120 } },
+      "expected": { "passed": false, "rule_code": "SINGLE_SUBJECT_LIMIT" }
+    },
+    {
+      "case_id": "G-029",
+      "description": "单科成绩未采集：要求英语 ≥ 120 但考生没填英语成绩 → 剔除并提示补数据（不得假设达标）",
+      "student": { "subjects": ["物理", "化学", "生物"], "single_subject_scores": {} },
+      "unit": { "single_subject_min": { "英语": 120 } },
+      "expected": { "passed": false, "rule_code": "SINGLE_SUBJECT_UNKNOWN" }
+    },
+    {
+      "case_id": "G-030",
+      "description": "学费上限：用户设定 20000，单位为中外合作 45000 → 剔除",
+      "student": { "subjects": ["物理", "化学", "生物"] },
+      "unit": { "tuition": 45000 },
+      "criteria": { "tuition_max": 20000 },
+      "expected": { "passed": false, "rule_code": "TUITION_LIMIT" }
+    },
+    {
+      "case_id": "G-031",
+      "description": "性别未采集但单位限男生 → 剔除并提示补性别（宁可不答，不替考生假设）",
+      "student": { "subjects": ["物理", "化学", "生物"], "gender": null },
+      "unit": { "gender_limit": "男" },
+      "expected": { "passed": false, "rule_code": "GENDER_UNKNOWN" }
+    },
+    {
+      "case_id": "G-032",
+      "description": "已撤销/停招单位 → 剔除",
+      "student": { "subjects": ["物理", "化学", "生物"] },
+      "unit": { "is_withdrawn": true },
+      "expected": { "passed": false, "rule_code": "UNIT_WITHDRAWN" }
+    },
+    {
+      "case_id": "G-033",
+      "description": "外语语种：单位限英语，考生日语 → 剔除",
+      "student": { "subjects": ["物理", "化学", "生物"], "foreign_language": "日语" },
+      "unit": { "foreign_language_requirement": "英语" },
+      "expected": { "passed": false, "rule_code": "FOREIGN_LANGUAGE_LIMIT" }
+    }
+  ]
+}

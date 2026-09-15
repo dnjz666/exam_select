@@ -24,6 +24,27 @@ class UnitType(str, Enum):
     MAJOR_GROUP = "MAJOR_GROUP"  # 院校专业组：上海 / 北京 / 天津 / 海南，有调剂
 
 
+def unit_key_from_parts(
+    province: str, college_code: str, group_code: str | None, major_code: str
+) -> str:
+    """拼装不含年份的单位标识：``{province}-{college_code}-{group_code}-{major_code}``。
+
+    ``group_code`` 为 None（专业+院校模式）时使用占位符 ``NA``（DATA_DICTIONARY §2.3）。
+    """
+    return f"{province}-{college_code}-{group_code or 'NA'}-{major_code}"
+
+
+def unit_key_of(unit_id: str) -> str:
+    """由 ``unit_id`` 反推 ``unit_key``（去掉年份段）。
+
+    ``unit_id = {province}-{year}-{college_code}-{group_code}-{major_code}``
+    """
+    parts = str(unit_id).split("-")
+    if len(parts) < 5:
+        return str(unit_id)
+    return "-".join([parts[0], *parts[2:]])
+
+
 class Tier(str, Enum):
     """冲稳保分层（AGENTS.md §6.3）。
 
@@ -154,6 +175,11 @@ class StudentProfile(BaseModel):
     foreign_language: str = "英语"
     single_subject_scores: dict[str, int] = Field(default_factory=dict)
 
+    # ---- 硬约束所需属性（AGENTS.md §6.4 第 3/7 条）
+    gender: str | None = None  # "男" | "女"；None = 未采集（不得据此推断可报男生专业）
+    is_fresh_graduate: bool = True  # 应届 / 往届
+    political_status: str = "群众"  # 政治面貌（提前批部分院校要求党员/团员）
+
     bonus_points: int = 0
     bonus_type: str | None = None
 
@@ -222,6 +248,15 @@ class AdmissionUnit(BaseModel):
     duration: int = 4
     campus: str | None = None
     remarks: str | None = None
+
+    # ---- 硬约束声明（AGENTS.md §6.4；默认 None/False = 无限制，绝不臆造限制）
+    gender_limit: str | None = None  # "男" | "女"；None = 不限
+    foreign_language_requirement: str | None = None  # 限报语种，如 "英语"；None = 不限
+    single_subject_min: dict[str, int] = Field(default_factory=dict)  # 单科要求 {"英语": 120}
+    fresh_graduate_only: bool = False  # 仅应届
+    political_requirement: str | None = None  # 如 "中共党员"；None = 不限
+    physical_requirements: list[str] = Field(default_factory=list)  # 体检受限原文关键词，如 ["色盲不宜"]
+    is_withdrawn: bool = False  # 已撤销 / 停招（§6.4 第 9 条）
 
 
 class AdmissionRecord(BaseModel):
@@ -385,6 +420,40 @@ class Risk(BaseModel):
 
 
 # ====================================================================
+# 硬约束过滤结果（AGENTS.md §6.4）
+# ====================================================================
+
+
+class RejectionReason(BaseModel):
+    """被剔除的一项，**必须可解释**（用于"为什么没推荐 XX"的追问回答）。"""
+
+    unit_id: str
+    rule_code: str
+    message: str
+
+
+class FilterCriteria(BaseModel):
+    """考生在推荐页设置的硬性筛选条件（软偏好之外的"一票否决"项）。"""
+
+    regions: list[str] = Field(default_factory=list)  # 意向省份；空 = 不限
+    levels: list[str] = Field(default_factory=list)  # 层次标签，如 ["985","211"]；空 = 不限
+    major_categories: list[str] = Field(default_factory=list)  # 意向门类；空 = 不限
+    tuition_max: int | None = None  # 学费硬上限（元/年）
+    exclude_unit_ids: list[str] = Field(default_factory=list)  # 手动排除
+
+
+class FilterResult(BaseModel):
+    """过滤输出：``passed`` 进入概率与打分；``rejected`` 每条都带剔除原因。"""
+
+    passed: list[AdmissionUnit] = Field(default_factory=list)
+    rejected: list[RejectionReason] = Field(default_factory=list)
+
+    @property
+    def rejected_count(self) -> int:
+        return len(self.rejected)
+
+
+# ====================================================================
 # 省份规则包（AGENTS.md §6.6，批次级建模 ADR-006）
 # ====================================================================
 
@@ -486,7 +555,11 @@ class ModelParams(BaseModel):
     )
 
     # ---- §6.8 安全垫
-    safety_margin: float = 0.15  # 保底需优于考生位次的余量
+    # ★ 回测标定（DOMAIN_RULES §3.1）：0.15 → 0.25 → **0.30**（2026-02 M2 回测）
+    #   依据：15% 余量下稳档命中率仅 80%（目标 ≥85%）；跨省验证（浙江/山东/北京）显示
+    #   0.30 一致优于 0.25（稳档 +1~2 点，保底失效率恒为 0，冲档与 Brier 不劣），
+    #   故非单省过拟合。前后对比见 docs/DECISIONS.md ADR-009。
+    safety_margin: float = 0.30  # 保底需优于考生位次的余量
     min_dian_abs: int = 3  # 垫底志愿最少数量
     min_dian_ratio: float = 0.05  # 垫底占总量比例下限
     min_dian_when_small_plan: int = 2  # 总志愿数 < 10 时的下限

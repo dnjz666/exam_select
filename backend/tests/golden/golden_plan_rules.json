@@ -1,0 +1,65 @@
+{
+  "kind": "plan_rule",
+  "note": "志愿表规则校验黄金用例（AGENTS.md §6.6 / ADR-006）：批次级结构校验，顺序志愿不做梯度配额校验。",
+  "cases": [
+    {
+      "case_id": "G-034",
+      "description": "上海本科普通批（院校专业组）：志愿未选择是否服从调剂 → ADJUSTMENT_UNSET",
+      "province": "shanghai",
+      "batch_code": "shanghai.undergrad.regular",
+      "items": [
+        { "college": "1001", "group": "G1", "major": "100111", "obey_adjustment": null }
+      ],
+      "expected": { "violation_codes_include": ["ADJUSTMENT_UNSET"] }
+    },
+    {
+      "case_id": "G-035",
+      "description": "上海本科普通批：同一院校专业组填两次 → DUPLICATE_GROUP",
+      "province": "shanghai",
+      "batch_code": "shanghai.undergrad.regular",
+      "items": [
+        { "college": "1001", "group": "G1", "major": "100111", "obey_adjustment": true },
+        { "college": "1001", "group": "G1", "major": "100112", "obey_adjustment": true }
+      ],
+      "expected": { "violation_codes_include": ["DUPLICATE_GROUP"] }
+    },
+    {
+      "case_id": "G-036",
+      "description": "浙江普通类第一段（专业+院校）：填了服从调剂 → ADJUSTMENT_NOT_APPLICABLE（不存在调剂概念）",
+      "province": "zhejiang",
+      "batch_code": "zhejiang.public.seg1",
+      "items": [
+        { "college": "1001", "group": null, "major": "100111", "obey_adjustment": true }
+      ],
+      "expected": { "violation_codes_include": ["ADJUSTMENT_NOT_APPLICABLE"] }
+    },
+    {
+      "case_id": "G-037",
+      "description": "浙江普通类提前录取院校（顺序志愿，上限 5 个）：填 6 个 → EXCEED_MAX_VOLUNTEERS；且顺序批次不得产出梯度类违规",
+      "province": "zhejiang",
+      "batch_code": "zhejiang.advance.college",
+      "items": [
+        { "college": "2001", "group": "G1", "major": "100111", "obey_adjustment": true },
+        { "college": "2002", "group": "G1", "major": "100112", "obey_adjustment": true },
+        { "college": "2003", "group": "G1", "major": "100113", "obey_adjustment": true },
+        { "college": "2004", "group": "G1", "major": "100114", "obey_adjustment": true },
+        { "college": "2005", "group": "G1", "major": "100115", "obey_adjustment": true },
+        { "college": "2006", "group": "G1", "major": "100116", "obey_adjustment": true }
+      ],
+      "expected": {
+        "violation_codes_include": ["EXCEED_MAX_VOLUNTEERS"],
+        "violation_codes_exclude": ["GRADIENT_INVERSION", "NO_SAFETY_NET"]
+      }
+    },
+    {
+      "case_id": "G-038",
+      "description": "投档单位类型与批次不符（把专业+院校单位填进院校专业组批次）→ UNIT_TYPE_MISMATCH",
+      "province": "shanghai",
+      "batch_code": "shanghai.undergrad.regular",
+      "items": [
+        { "college": "1001", "group": "G1", "major": "100111", "obey_adjustment": true, "unit_type": "MAJOR_COLLEGE" }
+      ],
+      "expected": { "violation_codes_include": ["UNIT_TYPE_MISMATCH"] }
+    }
+  ]
+}

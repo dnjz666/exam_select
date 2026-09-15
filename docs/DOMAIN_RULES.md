@@ -234,7 +234,8 @@ class ModelParams(BaseModel):
     quota: dict[str, float] = {"CHONG": 0.25, "WEN": 0.40, "BAO": 0.25, "DIAN": 0.10}
 
     # ---- §6.8 安全垫
-    safety_margin: float = 0.15            # 保底需优于考生位次的余量
+    # ★ 回测标定（§3.1）：0.15 → 0.30（2026-02 M2；跨省验证浙江/山东/北京一致更优，详见 DECISIONS ADR-009）
+    safety_margin: float = 0.30            # 保底需优于考生位次的余量
     min_dian_abs: int = 3                  # 垫底志愿最少数量
     min_dian_ratio: float = 0.05           # 垫底占总量比例下限
     min_dian_when_small_plan: int = 2      # 总志愿数 < 10 时的下限
@@ -267,7 +268,7 @@ class ModelParams(BaseModel):
 | R-004 | 位次逐年下降（数值变小）说明该校越来越热，要做趋势修正。 | Step 3 |
 | R-005 | 计划数变化是强信号，必须修正；计划大幅缩减的学校要警惕分数线上涨。 | Step 4 |
 | R-006 | 招生计划 < 5 人的单位，历史位次无预测价值，必须降置信度 + 打风险。 | Step 8 / `risk.py` |
-| R-007 | 保底志愿近三年最低位次必须**全部**优于考生位次且留 ≥15% 余量。 | `risk.py::SAFETY_NOT_SAFE` |
+| R-007 | 保底/垫底志愿：**考生位次必须比该单位近三年最难年份的最低位次还靠前 ≥ safety_margin（默认 30%）**，即 `min(近三年归一化最低位次) ≥ 考生位次 × 1.30`。（⚠️ 原文写作"单位位次优于考生位次"，方向写反——那等于单位更难=不安全，详见 DECISIONS ADR-009 勘误 2） | `risk.py::SAFETY_NOT_SAFE` / `probability.py::_safety_gated_tier` |
 | R-008 | 垫底志愿数量：≥3 个，且 ≥5% 总志愿数。 | `planner.py` 结构校验 |
 | R-009 | 冲稳保配额 25/40/25/10；某层不足时向**更保守**方向借位，绝不向更激进方向借。 | `planner.py` |
 | R-010 | 平行志愿检索严格按填报顺序，**最想去的必须放最前**，不能按概率排序。 | `planner.py` Step 3 |
@@ -372,7 +373,7 @@ tuition > budget_max                   → 硬约束剔除（见 filters.py）
 {
   "case_id": "G-001",
   "description": "考生位次稳定优于目标位次，计划不变，应为稳档",
-  "student": { "province": "zhejiang", "rank": 10000, "subjects": ["物理","化学","生物"] },
+  "student": { "province": "zhejiang", "rank": 9000, "subjects": ["物理","化学","生物"] },
   "history": [
     {"year": 2024, "min_rank": 9000,  "plan_count": 20, "data_quality": "OK"},
     {"year": 2023, "min_rank": 9500,  "plan_count": 20, "data_quality": "OK"},
@@ -403,9 +404,14 @@ tuition > budget_max                   → 硬约束剔除（见 filters.py）
 ```
 ✅ 考生位次变小（更强）→ 概率不下降
 ✅ 计划数增加         → 概率不下降
-✅ 历史位次整体变小（更难）→ 概率不下降
+✅ 历史位次整体变小（单位更难）→ 概率**不上升**（⚠️ 原文写"不下降"，方向与 §2.1 位次口径及 §6.2 公式矛盾；详见 DECISIONS ADR-009 勘误附注）
 ✅ σ 变大             → 概率向 0.5 收缩
 ```
+
+> ⚠️ **勘误（2026-02，ADR-009）**：本节原 G-001 示例把"考生 10000 vs 单位 9000/9500/9200"标为
+> "考生位次稳定优于目标位次、应为稳档"。按 §2.1「位次数值越小越靠前」与 §6.2 公式，
+> 该组合实为 `TOO_RISKY`（要得 0.55~0.72 应把考生位次改到 ~9000，示例已据此更正）。
+> `backend/tests/golden/golden_probability.json` 的 **G-018** 专门锁定这一方向，防止被"改回错误示例"。
 
 用 `hypothesis` 写成性质测试，比单点断言更能抓到方向写反的 bug。
 

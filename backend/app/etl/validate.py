@@ -342,14 +342,29 @@ def validate_rows(
     collected = sum(1 for h in admission_history if h["data_quality"] == "COLLECTED")
     if collected:
         report.add(WARNING, "W_COLLECTED", f"{collected} 条历史来自征集志愿（会高估概率）")
-    units_with_history = {h["unit_key"] for h in admission_history}
-    no_history = [u for u in admission_units if _unit_key_of(u) not in units_with_history]
+    # "无历史"指**预测可用历史**为空：year < 填报年
+    # （当年与未来行是回测地面真值，不得进入预测——模型强制 year < target.year）
+    current_year = max((u["year"] for u in admission_units), default=0)
+    units_with_prior_history = {
+        h["unit_key"] for h in admission_history if current_year and h["year"] < current_year
+    }
+    no_history = [u for u in admission_units if _unit_key_of(u) not in units_with_prior_history]
     if no_history:
         report.add(
             WARNING,
             "W_NO_HISTORY",
-            f"{len(no_history)} 个单位无任何历史（新增专业，M2 必须走 Step 0 类比回退，禁编造概率）",
+            f"{len(no_history)} 个单位无任何预测可用历史（year < {current_year}）"
+            "——含新增专业，M2 必须走 Step 0 类比回退，禁编造概率",
         )
+    if current_year:
+        ground_truth = [h for h in admission_history if h["year"] == current_year - 1]
+        if ground_truth:
+            report.add(
+                WARNING,
+                "W_GROUND_TRUTH",
+                f"{len(ground_truth)} 行属于回测地面真值（year={current_year - 1}）："
+                "仅用于回测比对，预测时必须按 year < target.year 过滤（防数据泄漏）",
+            )
 
     # 大小年（归一化后 cv 超阈值）与计划突增，均可检出才算"注入了已知规律"
     hist_by_key: dict[str, list[dict[str, Any]]] = defaultdict(list)

@@ -180,3 +180,29 @@
 | 位次生成 | 层次档比例 × 该年考生数；冷门专业 ×1.45、热门专业 ×0.62 修正；**夹紧到 [1, 该年考生数]**（位次不可能大于考生总数） |
 | 注入规律 | 大小年 10%、计划突增/突减 8%、新增专业 7%（零历史行）、小计划 6%、征集志愿 3%、`DERIVED` 12% |
 | 合规 | 全部行 `is_synthetic=1`、`verified=0`、`source_url` 前缀 `synthetic://`；**严禁用于真实填报** |
+
+### 5.1 时间轴与回测地面真值（ADR-009）
+
+| 概念 | 值 | 说明 |
+|---|---|---|
+| 填报年 | **2026** | `admission_units.year`；"今年计划"所在年 |
+| 历史投档年 | 2022–2025 | `admission_history`；其中 **2025 同时是回测地面真值年** |
+| 计划快照年 | 2022–2026 | `admission_plans` |
+| 防泄漏 | `year < target.year` | **预测时必须过滤**；模型内部强制，校验器以 `W_GROUND_TRUTH` 提示 |
+
+> 因此：线上（2026 考生）用 2023–2025 预测；回测（Y=2025）用 2022–2024 预测再与 2025 实际比对。
+
+---
+
+## 6. M2 算法输出口径（`app/core/*`）
+
+| 项 | 口径 |
+|---|---|
+| `tier` 判定 | 概率区间（§6.3）**+ 安全闸门**（Step 8.6）：`BAO`/`DIAN` 还须满足 `min(近三年归一化最低位次) ≥ 考生位次 × (1 + safety_margin)`；否则降级 `WEN` 并打 `SAFETY_MARGIN_NOT_MET` |
+| 为何"概率 0.95 却是 WEN" | 该单位给不出 30% 余量 → 不能当垫底用；`reasons` 会披露原始概率与降级原因（**刻意保守**） |
+| 无本单位历史 | Step 0 类比路径：`confidence=LOW` 且**一律不得判为 BAO/DIAN** |
+| `sigma` | 报告值为**最终生效**的 σ（含 Step 7 波动放大后的值），`probability_interval` 的 ±1σ 区间即基于它 |
+| `probability_interval` | UI 必须显示区间（§8）；由报告概率按 σ 尺度展开 ±1，仍受 `prob_clip_*` 约束 |
+| 警告码 | `NO_HISTORY` / `SINGLE_YEAR_DATA` / `PLAN_TOO_SMALL` / `COLLECTED_ONLY` / `VOLATILE_HISTORY` / `DERIVED_DATA_DOWNWEIGHTED` / `SUSPECT_DATA_IGNORED` / `MISSING_RANK_IGNORED` / `NO_NORMALIZATION_BASIS` / `ANALOG_POOL_FALLBACK` / `UNKNOWN_BATCH` / **`SAFETY_MARGIN_NOT_MET`** |
+| `evidence` | 每条必带 `source_url`；预测只用 `year < target.year` 且 `data_quality ∈ {OK, DERIVED, COLLECTED}` 的行 |
+| 回测 `admitted` | `考生位次 <= 该单位目标年实际最低位次`（非征集行优先） |
