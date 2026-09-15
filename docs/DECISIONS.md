@@ -640,3 +640,126 @@ M2 引入 numpy/scipy 时请在本机终端执行：
 - 已知边界：山东冲档 41.2%、北京稳档 83.9% 略越阈值（见 ADR-009 后果，建议按跨省容差读）；
 - **下一轮从 M3 开始**：按 §7 实现 API 端点，service 层"查库 → 组装 → 调 core → 存结果"，
   每个 recommend item 必须带回非空 evidence。
+
+---
+
+## ADR-010 · M3 后端 API 的关键决策
+
+- **日期**：2026-02（M3 轮）
+- **状态**：已采纳
+- **背景**：按 §7 实现全部端点。约束：core 必须保持纯函数；响应不得出现无来源的数字；
+  契约要求"每个 recommend item 必有非空 evidence"；导出需要真 PDF/XLSX（用户选 A，装 reportlab+openpyxl）。
+
+### 决策
+
+1. **统一响应信封** `Envelope[T] = {data, evidence, warnings}`，把 §7 开头"所有响应含三段"落到类型上；
+   错误统一为 `{"error": {code, message, details}}`，领域异常在 `main.create_app` 里集中映射
+   （409 PROFILE_INCOMPLETE / 503 RANK_UNAVAILABLE / 404 PLAN_NOT_FOUND / 422 UNKNOWN_UNITS /
+   404 REPORT_UNAVAILABLE / 404 NOT_FOUND）。
+2. **新增两张 L2 表**（§5.2 未列，属 M3 扩展）：`students`（档案，草稿态可空）与
+   `plans`（志愿表，payload 存整份 `VolunteerPlan`）。二者是**用户产生的数据**而非外部数据源，
+   `source_url` 记录口径（`draft://student-profile` / `generated://planner`）。
+   - `students.total_score` **可空**以支持"建档向导中途未填分"；
+     **核心 `StudentProfile` 保持"完整档案"语义不变**——草稿态只存在于 L2/L4，
+     计算路径用 `student_service.require_complete()` 拦截（不替考生假设）。
+3. **新增 `db/repositories.py`（L2 访问层）**，并把 M2 里散在 `services/backtest_data.py`
+   的取数逻辑收拢过去，消除重复；`core/` 依旧零 DB 依赖（ADR-003）。
+4. **Step 0 类比证据显式化**：给 `HistoryEvidence` 加 `note` 字段，Step 0 返回类比单位的证据并标注
+   `note="类比单位 <unit_id>"`。这样既满足"recommend 每项 evidence 非空"的契约铁律，
+   又**不会把类比数据伪装成本单位历史**（宁可不答，不可编造）。
+5. **报告导出**：xlsx 用 openpyxl（四张表：志愿表 / 历史证据 / 风险提示 / 说明与来源），
+   PDF 用 reportlab 内置 `STSong-Light` CID 字体（**无需字体文件**即出中文）。
+   两者共用同一份 `build_report()` 数据；内容强制含**免责声明 + 来源清单 + 规则核实状态**（§8/§12）。
+6. **手改志愿表只允许在"生成时的候选池"内调整**（`patch_items`）：不允许把未经过滤/未算概率的
+   unit_id 塞进志愿表，避免绕过硬约束与证据链；每次改动后**立即重算** `violations`（批次规则）
+   与 `risks`（§6.8），不存在"改完不校验"的状态。
+7. **`/chat` 在 M3 只交付 SSE 通道 + 会话历史 + 防幻觉底线**：回复**不含任何数字**、
+   缺字段先追问（一次 ≤3 个）、首次回复带免责声明；工具调用/System Prompt/guard 属 M5。
+   会话历史暂存内存（M5 落库），响应中明确告知，避免被误认为已持久化。
+8. **dev 环境启动即 `create_all` 建表**（含 M3 新表），生产不自动建表、由 M7 引入 alembic 迁移。
+
+### 实测缺陷（本轮真实踩到并已修，均有回归测试）
+
+| 缺陷 | 症状 | 根因 | 修复 |
+|---|---|---|---|
+| 学生 id 撞主键 | `IntegrityError`（同一秒内创建多个档案） | id 用秒级时间戳生成 | 改用 `uuid4().hex[:12]` |
+| 志愿表生成崩溃 | `ValueError: tuple.index(x): x not in tuple` | `plan_service` 把 TOO_RISKY 候选也交给 planner，而 planner 的分层元组只有冲稳保垫 | planner 显式剔除 TOO_RISKY 并告警；排序改用安全索引 `_tier_index()` |
+| 全省红线误判 | 上海（主批次 PRIMARY + 其余批次 SECONDARY）被当成"全部未核实" | `meta_service.requires_banner` 口径过宽（任一非 PRIMARY 即置位） | 改为"**全部**批次非 PRIMARY"才算红线，与 `validate.py::W_RULE_REDLINE` 对齐；部分未达标记为 `has_caution` |
+| `validate` 端点 500 | `NameError: name 'plan' is not defined` | `plan_service.validate()` 漏写 `bundle.` 前缀（3 处） | 修正；测试覆盖该端点 |
+| 新表未建 | `no such table: students` | M3 新增表，而建表只在 M1 播种时发生 | dev 启动钩子 `init_db()`；`seed.py --reset` 亦会建表 |
+| **SQLite 相对路径随 CWD 漂移** | 从 `backend/` 启动（AGENTS §4.4 的**文档化命令**）时报 `unable to open database file`；更坏的情况是静默生成 `backend\data\exam_select.db` 这个**空库**，让人误以为"库里没数据" | 默认 `sqlite:///./data/exam_select.db` 是相对路径，而验收命令要求 `Push-Location backend` 后起服务 | `config.anchor_sqlite_url()` 把 SQLite 相对路径**锚定到仓库根**并确保父目录存在；新增 5 项 `test_config.py` 回归（含 `monkeypatch.chdir` 模拟不同 CWD） |
+
+### 后果
+
+- ✅ M3 验收全绿：`pytest backend/tests/test_api.py -q` → **20 passed**；
+  全套 **192 passed**、core 覆盖率 **95.93%**；`/openapi.json` 可解析（OpenAPI 3.1.0，20 条路由），
+  真实 uvicorn 下建档→推荐→志愿表→导出的闭环已跑通。
+- ✅ 契约铁律有测试守着：evidence 非空、概率 None ⇔ NO_DATA、来源齐全、概率区间存在。
+- ⚠️ 会话历史与 LLM 能力是 M5 的事；M3 的 `/chat` 只是"合规通道"，不是可用助手。
+- ⚠️ 志愿表手改仅限候选池内（新增志愿需重新生成）——这是刻意约束，M4 拖拽排序够用，
+  但"用户想加一个池外志愿"需在 M4/M5 通过重新生成 + 候选扩展解决。
+- ⚠️ `pytest backend/tests` 依赖已播种的数据库（`scripts/seed.py`）；未播种时测试**明确失败**
+  并给出命令，不静默跳过。
+
+### 被否决的方案
+
+| 方案 | 否决理由 |
+|---|---|
+| 放宽"recommend 每项 evidence 非空"（允许 Step 0 项为空） | 契约铁律不能靠例外维护；正确做法是把"类比证据"显式化并标注性质 |
+| 把会话历史与 `/chat` 一起留到 M5（M3 返回 501） | M3 要求实现全部端点；SSE 通道 + 防幻觉底线现在就能交付并有测试 |
+| 允许 PATCH 任意 unit_id | 会绕过硬约束过滤与概率证据链，等于给系统开一个"无证据推荐"的后门 |
+| 导出先返回 HTML 让浏览器打印 | 用户已定 A：契约要求 `format=pdf|xlsx`，用 reportlab/openpyxl 出真文件 |
+| 生产环境也自动 `create_all` 建表 | 隐式改 schema 在生产是事故源；迁移必须显式（M7 alembic） |
+| 手搓 XLSX/PDF（stdlib zipfile/PDF 指令） | 中文 PDF 需 CJK 字体嵌入，手搓成本与出错率都高于引入成熟库 |
+
+---
+
+## M3 验收记录（2026-02）
+
+**验收命令与真实输出**（AGENTS.md §10 M3）：
+
+```text
+1) backend\.venv\Scripts\python.exe -m pytest backend/tests/test_api.py -q
+   → 20 passed, 2 warnings in 14.40s        （exit=0）✅
+   覆盖端点：/health · /openapi.json · meta(provinces|rule|tiers) · students(POST|GET|PATCH|resolve-rank)
+             colleges/search · majors/search · units/{id}/history · recommend · plans(generate|GET|PATCH|validate|export×2)
+             risk/scan · chat(SSE) · chat/{id}/history · backtest/report
+   覆盖铁律：evidence 非空且带 source_url · probability None ⇔ NO_DATA · 概率区间存在 · 来源齐全
+             409（档案不全）· 404（不存在）· 422（导出格式/池外单位）
+   导出实测：PDF 以 %PDF 开头且 >1.5KB；XLSX 为 PK 压缩包；xlsx 四张表含免责声明与来源清单
+
+2) backend\.venv\Scripts\python.exe -c "from app.main import app; app.openapi()"
+   → openapi ok: 3.1.0 | paths: 20 | title: 高考志愿填报智能体 ✅
+
+3) 真实服务端到端（uvicorn，CWD=backend/ —— 即 §4.4 文档化命令的目录）：
+   curl.exe -s http://127.0.0.1:8011/openapi.json | python -m json.tool     → exit 0 ✅
+   GET /health                                                             → {"status":"ok"} ✅
+   GET /api/v1/meta/provinces   → 6 省 · 红线省份 ['hainan','tianjin']（与 DOMAIN_RULES §1.3 一致）✅
+   GET /api/v1/colleges/search?q=浙江 → 3 条，首条「浙江大学」（证明连的是仓库根那个已播种库）✅
+   POST /api/v1/students {zhejiang,2026,物化生,640} → stu-a285df29d418，missing=[] ✅
+   POST /students/{id}/resolve-rank → 位次 17812，来源 synthetic://…synthetic.py，等效分 3 年 ✅
+   POST /api/v1/recommend {limit:5} → 5 项，首项 CHONG 0.237（落在 [0.10,0.40)），evidence 3 条 ✅
+   POST /api/v1/plans/generate      → 80 个志愿（浙江上限 80 ✓），分层 {CHONG 7, WEN 55, DIAN 18}
+      （BAO 稀缺 → planner 按 §6.7 规则 2「优先向更保守方向借位」，与 M2 安全闸门的 BAO 收缩一致）
+
+4) 全量回归：pytest backend/tests -q --cov=app.core --cov-fail-under=90
+   → 192 passed, 2 warnings in 49.21s
+   → 覆盖率 TOTAL 1500 stmts / 61 miss / 95.93%（门槛 90% ✅）
+   → 其中 test_api.py 20 项（§7 全端点）+ test_config.py 5 项（路径锚定回归）
+```
+
+**完成定义逐项核对**：
+- [x] 所有端点有测试（20 项集成测试覆盖 §7 全部端点）
+- [x] 每个 recommend item 都有非空 evidence（含 Step 0 类比证据，`note` 标注性质）
+- [x] 无来源数字字段为 0 个（evidence/院校/专业/规则来源齐备，测试逐项断言）
+- [x] OpenAPI 文档可访问且可解析（TestClient 与真实 uvicorn 两条路径都验证过）
+- [x] service 层负责"查库 → 组装 → 调 core → 存结果"，core 仍是纯函数（覆盖率 95.93%）
+- [x] 端到端真实闭环：建档 → 换算位次 → 推荐 → 生成志愿表 → 导出 PDF/XLSX（测试断言 PDF 头与 xlsx 结构）
+
+**本轮未做 / 下轮起点**：
+- `/chat` 的 LLM 工具调用、System Prompt、guard 输出校验器 → **M5**（§9）；
+  会话历史仍存内存，M5 落库；
+- 前端（M4）：5 个页面 + OpenAPI 生成类型 + 端到端闭环（建档 → 推荐 → 志愿表 → 导出）；
+- 敏感度热力图（§3.1）与 §6.8 的两个增量风险码仍待补；
+- **下一轮从 M4 开始**：按 §8 实现首屏向导（省份联动 → 选考 3 门 → 成绩换算），
+  推荐列表（概率区间 + 展开证据链），志愿表（拖拽/风险面板/导出），报告页（免责声明 + 来源清单）。

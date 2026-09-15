@@ -424,6 +424,7 @@ def _step0_no_history(
 
     target_province = target.province
     candidates: list[float] = []
+    analog_evidence: list[HistoryEvidence] = []
     for analog in analog_pool:
         # 同地区：类比单位与目标单位位于同一省（按院校所在省判断）
         if analog.college_province and analog.college_province != target.college_id.split("-", 1)[0]:
@@ -438,6 +439,20 @@ def _step0_no_history(
             candidates.append(normalize_rank(int(latest.min_rank), latest.total_candidates, current_total))
         else:
             candidates.append(float(latest.min_rank))
+        # ★ 类比证据：显式标注"这不是本单位历史"，避免被误当成真实历史
+        #   （§7 契约铁律 1 要求 recommend 每项 evidence 非空）
+        analog_evidence.append(
+            HistoryEvidence(
+                year=latest.year,
+                min_rank=latest.min_rank,
+                min_score=latest.min_score,
+                plan_count=latest.plan_count,
+                data_quality=latest.data_quality,
+                is_collected=latest.is_collected,
+                source_url=latest.source_url,
+                note=f"类比单位 {analog.unit.unit_id}",
+            )
+        )
     # 同一招生省份（所有候选单位来自同一省，target_province 仅用于可读性）
     _ = target_province
 
@@ -498,7 +513,7 @@ def _step0_no_history(
         confidence=Confidence.LOW,
         predicted_min_rank=predicted,
         sigma=sigma,
-        evidence=[],
+        evidence=analog_evidence,
         adjustments=[
             Adjustment(
                 name="analog_pool",

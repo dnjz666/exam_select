@@ -36,6 +36,8 @@ PACKAGES = [
     "pytest-cov", "coverage",
     "hypothesis", "attrs", "sortedcontainers",
     "httpx", "httpcore", "certifi",
+    # M3 报告导出（离线兜底路径）
+    "reportlab", "pillow", "openpyxl", "et-xmlfile",
 ]
 
 WHEEL_RE = re.compile(

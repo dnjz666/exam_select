@@ -301,6 +301,8 @@ class HistoryEvidence(BaseModel):
     data_quality: DataQuality = DataQuality.OK
     is_collected: bool = False
     source_url: str = ""  # 无来源的证据不得出现在响应中
+    #: 证据性质标注：None = 本单位历史；"类比单位 xxx" = Step 0 类比池证据（新增专业无历史）
+    note: str | None = None
 
 
 class Adjustment(BaseModel):

@@ -35,6 +35,13 @@ from app.core.rules.base import ProvinceRule
 _TIER_ORDER: tuple[Tier, ...] = (Tier.CHONG, Tier.WEN, Tier.BAO, Tier.DIAN)
 #: 保守程度从高到低（借位时使用）
 _CONSERVATIVE_FIRST: tuple[Tier, ...] = (Tier.DIAN, Tier.BAO, Tier.WEN, Tier.CHONG)
+#: TOO_RISKY 的下界（仅用于文案；数值来自 ModelParams.tier_bounds 的语义）
+_TOO_RISKY_FLOOR = 0.10
+
+
+def _tier_index(tier: Tier) -> int:
+    """分层排序位置；不在冲稳保垫之列（TOO_RISKY / NO_DATA）一律排到最后。"""
+    return _TIER_ORDER.index(tier) if tier in _TIER_ORDER else len(_TIER_ORDER)
 
 MAX_LOCAL_SEARCH_ITERATIONS = 20
 LOCAL_SEARCH_POOL_LIMIT = 200
@@ -48,13 +55,23 @@ def dian_required(batch: BatchRule, params: ModelParams) -> int:
 
 
 def _dedup(candidates: Sequence[ScoredUnit], batch: BatchRule) -> tuple[list[ScoredUnit], list[str]]:
-    """去重并剔除 NO_DATA；返回 (候选, 警告)。"""
+    """去重并剔除 NO_DATA / TOO_RISKY；返回 (候选, 警告)。"""
     warnings: list[str] = []
     no_data = [c for c in candidates if c.tier is Tier.NO_DATA or c.probability is None]
-    usable = [c for c in candidates if c.tier is not Tier.NO_DATA and c.probability is not None]
+    too_risky = [c for c in candidates if c.tier is Tier.TOO_RISKY and c.probability is not None]
+    usable = [
+        c
+        for c in candidates
+        if c.tier not in (Tier.NO_DATA, Tier.TOO_RISKY) and c.probability is not None
+    ]
     if no_data:
         warnings.append(
             f"{len(no_data)} 个候选因无可用历史数据（NO_DATA）被排除在志愿表之外（禁止编造概率）。"
+        )
+    if too_risky:
+        # TOO_RISKY（概率 <0.10）默认不进志愿表（§6.3）；显式开启需调用方自行放入 "冲" 之外的位置
+        warnings.append(
+            f"{len(too_risky)} 个候选概率低于 {_TOO_RISKY_FLOOR:.0%}（TOO_RISKY），默认不参与志愿表生成。"
         )
 
     chosen: dict[str, ScoredUnit] = {}
@@ -164,11 +181,11 @@ def _order_parallel(
         index = {unit_id: i for i, unit_id in enumerate(preference_order)}
         ordered = sorted(
             selected,
-            key=lambda c: (index.get(c.unit.unit_id, len(index)), _TIER_ORDER.index(c.tier)),
+            key=lambda c: (index.get(c.unit.unit_id, len(index)), _tier_index(c.tier)),
         )
     else:
         ordered = sorted(
-            selected, key=lambda c: (_TIER_ORDER.index(c.tier), -c.utility, c.unit.unit_id)
+            selected, key=lambda c: (_tier_index(c.tier), -c.utility, c.unit.unit_id)
         )
 
     # 最后一档必须是 BAO/DIAN（§6.7 步骤 3）
@@ -264,6 +281,8 @@ def generate_plan(
             probability=candidate.probability,
             utility=candidate.utility,
             obey_adjustment=obey_adjustment if batch.has_major_adjustment else None,
+            # 把概率模型的人话理由带进志愿项：报告/UI 的"每志愿依据"直接可读（§7/§8）
+            notes=list(candidate.probability_result.reasons[:2]) if candidate.probability_result else [],
         )
         for index, candidate in enumerate(ordered)
     ]

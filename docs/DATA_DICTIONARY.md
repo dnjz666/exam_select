@@ -206,3 +206,44 @@
 | 警告码 | `NO_HISTORY` / `SINGLE_YEAR_DATA` / `PLAN_TOO_SMALL` / `COLLECTED_ONLY` / `VOLATILE_HISTORY` / `DERIVED_DATA_DOWNWEIGHTED` / `SUSPECT_DATA_IGNORED` / `MISSING_RANK_IGNORED` / `NO_NORMALIZATION_BASIS` / `ANALOG_POOL_FALLBACK` / `UNKNOWN_BATCH` / **`SAFETY_MARGIN_NOT_MET`** |
 | `evidence` | 每条必带 `source_url`；预测只用 `year < target.year` 且 `data_quality ∈ {OK, DERIVED, COLLECTED}` 的行 |
 | 回测 `admitted` | `考生位次 <= 该单位目标年实际最低位次`（非征集行优先） |
+
+---
+
+## 7. M3 新增：用户数据表与 API 口径（ADR-010）
+
+### 7.1 `students` —— 考生档案（草稿态可空）
+
+| 字段 | 口径 |
+|---|---|
+| `id` | `stu-<uuid12>`（**不可用时间戳**：同一秒会撞主键，M3 实测缺陷） |
+| `subjects` / `single_subject_scores` / `physical_exam` / `preferences` / `missing_fields` | JSON 文本列 |
+| `total_score` | **可空**：建档向导中途未填分；核心 `StudentProfile` 仍要求完整，计算路径用 `require_complete()` 拦截（不替考生假设） |
+| `rank` | 可空；由 `POST /students/{id}/resolve-rank` 换算，或推荐前自动换算 |
+| `rank_source_url` | 位次来源（`score_rank_table.source_url` 或 `manual://student-provided`）——保证位次可追溯 |
+| `source_url` | 固定 `draft://student-profile`（本表是考生自述数据，不是外部数据源） |
+
+### 7.2 `plans` —— 志愿表
+
+| 字段 | 口径 |
+|---|---|
+| `payload` | 整份 `VolunteerPlan` 的 JSON（有序 items、分层分布、违规、逐项 `notes` 依据） |
+| `risks` | 最近一次风险扫描结果 JSON（§6.8 的 `Risk` 列表） |
+| `batch_code` / `is_parallel` | 批次规则快照，导出与报告据此复现 |
+| `source_url` | 固定 `generated://planner` |
+
+> 逐项**证据链不落库**：导出/读取时由 `admission_history` 重算（证据是派生数据，
+> 存副本会与历史脱节）。见 `plan_service._plan_evidence`。
+
+### 7.3 API 口径
+
+| 项 | 口径 |
+|---|---|
+| 响应信封 | 所有响应 `{data, evidence, warnings}`；错误体 `{error: {code, message, details}}` |
+| 错误码 | `PROFILE_INCOMPLETE` 409 · `RANK_UNAVAILABLE` 503 · `PLAN_NOT_FOUND` 404 · `UNKNOWN_UNITS` 422 · `REPORT_UNAVAILABLE` 404 · `NOT_FOUND` 404 |
+| `recommend` 项字段 | `probability / probability_interval / tier / confidence / utility / score_breakdown / evidence / adjustments / reasons / warnings`；`probability is None` 的项**不返回**（数量见 `stats.no_data_count`） |
+| 概率区间 | `probability_interval` 按 ±1σ 给出（UI 强制显示区间，§8） |
+| `plans` 手改 | PATCH 只接受**生成时候选池内**的 `unit_id`；池外 → 422 `UNKNOWN_UNITS` |
+| `export` | `format=pdf`（reportlab，内置 STSong-Light 中文，无需字体文件）或 `xlsx`（openpyxl，四张表）；均含免责声明与来源清单 |
+| `/chat` | M3 仅 SSE 通道 + 内存会话历史 + 防幻觉底线（回复**不含数字**、首次回复带免责声明）；工具化回答见 M5 |
+| dev 建表 | `APP_ENVIRONMENT=dev` 时启动 `create_all`；生产不自动建表（M7 alembic） |
+| 测试前置 | `pytest backend/tests` 需要已播种数据库；未播种时**明确失败**并提示 `scripts/seed.py --reset`（不静默跳过） |

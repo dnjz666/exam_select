@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Float, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, Float, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -158,4 +158,66 @@ class ProvinceYearStats(Base):
     track: Mapped[str] = mapped_column(String(16), primary_key=True)
     total_candidates: Mapped[int] = mapped_column(Integer, nullable=False)
     source_url: Mapped[str] = mapped_column(String(512), nullable=False)
+    is_synthetic: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+# ====================================================================
+# M3 新增：考生档案 与 志愿表（ADR-010）
+# 说明：这两张表存的是**用户产生的数据**（档案草稿与志愿表），不是外部数据源，
+# 因此 source_url 记录其来源口径（考生自述 / 系统生成），is_synthetic 沿用模拟数据标记。
+# ====================================================================
+
+
+class Student(Base):
+    """考生档案（§5.3 StudentProfile 的落库形态）。
+
+    嵌套结构（选考科目、体检、偏好、单科成绩）以 JSON 文本列存储，
+    口径见 ``docs/DATA_DICTIONARY.md`` §7。
+    """
+
+    __tablename__ = "students"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    province: Mapped[str] = mapped_column(String(16), nullable=False)
+    year: Mapped[int] = mapped_column(Integer, nullable=False)
+    track: Mapped[str] = mapped_column(String(16), nullable=False, default="综合")
+    subjects: Mapped[str] = mapped_column(Text, nullable=False, default="[]")  # JSON list[str]
+    total_score: Mapped[int | None] = mapped_column(Integer)  # 草稿态可为空，以 missing_fields 为准
+    rank: Mapped[int | None] = mapped_column(Integer)  # 位次；缺省由一分一段表换算，绝不估算
+    gender: Mapped[str | None] = mapped_column(String(4))
+    is_fresh_graduate: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    political_status: Mapped[str] = mapped_column(String(16), nullable=False, default="群众")
+    foreign_language: Mapped[str] = mapped_column(String(16), nullable=False, default="英语")
+    single_subject_scores: Mapped[str] = mapped_column(Text, nullable=False, default="{}")  # JSON dict
+    physical_exam: Mapped[str] = mapped_column(Text, nullable=False, default="{}")  # JSON dict
+    bonus_points: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    bonus_type: Mapped[str | None] = mapped_column(String(32))
+    preferences: Mapped[str] = mapped_column(Text, nullable=False, default="{}")  # JSON dict
+    missing_fields: Mapped[str] = mapped_column(Text, nullable=False, default="[]")  # JSON list[str]
+    rank_source_url: Mapped[str | None] = mapped_column(String(512))  # 位次换算的来源（可追溯）
+    created_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    updated_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_url: Mapped[str] = mapped_column(String(512), nullable=False, default="draft://student-profile")
+    is_synthetic: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class Plan(Base):
+    """志愿表（§6.7 VolunteerPlan 的落库形态）。
+
+    ``payload`` 存整份 ``VolunteerPlan`` 的 JSON（含逐项证据链）；
+    批次规则快照、分层分布、违规与风险都随 payload 走，保证"导出即可复现"。
+    """
+
+    __tablename__ = "plans"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    student_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    province: Mapped[str] = mapped_column(String(16), nullable=False)
+    batch_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    is_parallel: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    payload: Mapped[str] = mapped_column(Text, nullable=False)  # JSON: VolunteerPlan
+    risks: Mapped[str] = mapped_column(Text, nullable=False, default="[]")  # JSON list[Risk]
+    created_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    updated_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_url: Mapped[str] = mapped_column(String(512), nullable=False, default="generated://planner")
     is_synthetic: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

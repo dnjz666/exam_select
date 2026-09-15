@@ -222,13 +222,16 @@ exam_select/
 │   │   │       └── hainan.py      # 院校专业组，30×6
 │   │   ├── api/
 │   │   │   ├── deps.py
+│   │   │   ├── schemas.py         # 统一响应信封（data/evidence/warnings）与请求模型
 │   │   │   └── v1/
 │   │   │       ├── students.py
 │   │   │       ├── meta.py
+│   │   │       ├── catalog.py     # 院校/专业检索、单位历史
 │   │   │       ├── recommend.py
 │   │   │       ├── plans.py
 │   │   │       ├── risk.py
-│   │   │       └── chat.py
+│   │   │       ├── chat.py        # SSE 通道（LLM 工具化回答见 M5）
+│   │   │       └── backtest.py
 │   │   ├── db/
 │   │   │   ├── models.py          # SQLAlchemy 表定义
 │   │   │   ├── session.py
@@ -244,6 +247,15 @@ exam_select/
 │   │   │   ├── narrator.py        # 结果 → 名师口吻解释
 │   │   │   └── guard.py           # ★ 输出校验器（幻觉拦截）
 │   │   └── services/              # 编排：查数据 → 调 core → 存结果
+│   │       ├── meta_service.py
+│   │       ├── student_service.py
+│   │       ├── recommend_service.py
+│   │       ├── plan_service.py
+│   │       ├── risk_service.py
+│   │       ├── report_service.py  # 报告导出（xlsx / 中文 PDF）
+│   │       ├── chat_service.py
+│   │       ├── backtest_service.py
+│   │       └── backtest_data.py   # 回测数据装配（M2 引入）
 │   └── tests/
 │       ├── golden/                # ★ 黄金用例（输入→期望概率区间）
 │       ├── test_rank.py

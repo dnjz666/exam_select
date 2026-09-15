@@ -12,6 +12,9 @@ dependencies = [
     # M2 核心算法栈（AGENTS.md §4.1）：概率模型用 scipy.stats.norm.cdf（§6.2 Step 6）
     "numpy>=1.26",
     "scipy>=1.11",
+    # M3 报告导出（AGENTS.md §7 /plans/{id}/export）：reportlab 内置 CJK CID 字体（STSong-Light）直出中文 PDF
+    "reportlab>=4.0",
+    "openpyxl>=3.1",
 ]
 
 [project.optional-dependencies]
