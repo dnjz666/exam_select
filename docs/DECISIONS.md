@@ -887,6 +887,67 @@ M3 的实现是 `pool = 当前 items`，于是**移除一个志愿后无法再�
 
 ---
 
+## ADR-012 · pnpm 供应链策略与 lockfile 缺陷（M4 跟进）
+
+**背景**：用户在自己终端执行 `pnpm dev` 报 `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION`，
+4 个 lockfile 条目被拒（`autoprefixer@10.6.1` / `brace-expansion@2.1.7` / `browserslist@4.29.0`
+/ `electron-to-chromium@1.5.428`），pnpm 的提示很准：
+*"someone committed a lockfile that bypassed the policy locally"*。这是 M4 遗留的真实缺陷。
+
+**根因（两层，缺一不可）**：
+
+1. **两个 pnpm 不是同一个**。agent 会话里的 `pnpm` 是 DSH Desktop 注入的 runtime shim
+   （pnpm **11.8.0**）；用户终端里的是全局安装的 pnpm **12.4.1**。
+   pnpm 12 起把 `minimumReleaseAge`（默认 **1440 分钟 = 24 小时**）作为**内置供应链防护**：
+   拒绝安装发布不满一天的版本——针对的正是"投毒版本发布后数小时内被下架"这一真实攻击窗口。
+   pnpm 11.8 没有这个默认值，shim 报告的 `minimumReleaseAge` 是 **0**。
+2. **首次安装没有 lockfile 可供校验**。pnpm 的策略校验作用于 **lockfile 条目**：
+   首次 `pnpm install`（无 lockfile）时把当前解析结果直接写入，**不过校验**；
+   此后每次 install 都校验。于是同一份 lockfile 在 A 机器过、在 B 机器挂。
+
+**决策**：
+
+1. **不关掉这条防护**。`minimumReleaseAge: 0` 是错误答案——它挡的正是我们要挡的东西。
+   改为**显式写死 `1440`** 到 `frontend/pnpm-workspace.yaml`：解析与校验从此用同一把尺子，
+   pnpm 11/12 行为一致，不再依赖"哪台机器上哪个 pnpm 的默认值"。
+2. **用 pnpm 12（用户那一个）重建 lockfile**，让**解析阶段就受策略约束**。
+   4 个包各回退一个补丁版：
+
+   | 包 | 原 | 新 |
+   |---|---|---|
+   | autoprefixer | 10.6.1 | **10.6.0** |
+   | brace-expansion | 2.1.7 | **2.1.4** |
+   | browserslist | 4.29.0 | **4.28.9** |
+   | electron-to-chromium | 1.5.428 | **1.5.427** |
+
+   实测：`✓ Lockfile passes supply-chain policies (250 entries in 4.5s)`；
+   **构建产物哈希与回退前完全一致**（`index-DcwjrTkW.js` / `index-BDwyQYW-.css` 字节相同），
+   说明这 4 个都是浏览器数据/工具类的小版本差异，对产物无任何影响。
+3. 需要豁免时的正确姿势写进 `pnpm-workspace.yaml` 注释（按优先级）：
+   **等满 24 小时** → 或用 `minimumReleaseAgeExclude` 显式豁免并在 PR 说明理由
+   → **绝不**把 `minimumReleaseAge` 改成 0。
+
+**环境事实（新增，重要）**：
+- **agent 会话里的 `pnpm` / `node` 与用户终端不是同一套**：会话内 `pnpm` 是 DSH shim
+  （11.8.0，`minimumReleaseAge=0`），全局 pnpm 在 `C:\nvm4w\nodejs\node_modules\pnpm`（12.4.1）。
+  → **凡涉及前端依赖的操作，必须用全局 pnpm 复核**：
+  ```powershell
+  node "C:\nvm4w\nodejs\node_modules\pnpm\bin\pnpm.mjs" install --frozen-lockfile
+  ```
+  否则会重复本轮事故（生成一份"本机合规、用户机不合规"的 lockfile）。
+- `pnpm config list` 里的 `minimumReleaseAge` 是**有效值**，可直接用来判断当前 pnpm 有无该防护。
+
+**被否决的方案**：
+
+| 方案 | 否决理由 |
+|---|---|
+| `minimumReleaseAge: 0` | 等于关掉防护，正是这条策略要挡的攻击窗口 |
+| 等 24h 再装 | 确实可行，但把仓库留在"lockfile 不合规"的坏状态，下一个人还会踩 |
+| 直接 `minimumReleaseAgeExclude` 这 4 个包 | 能立刻解开，但没必要：它们各回退一个补丁版即可，重建 lockfile 更干净；豁免名单留给真正需要的情况 |
+| 把 `storeDir` 锁定到仓库内 | 另有一个 store 路径差异（`D:\.pnpm-store` vs `D:\exam_select\.pnpm-store`），但那只导致首次多下一次包，不影响正确性；把 store 路径写进仓库不符合 pnpm 习惯 |
+
+---
+
 ## M4 验收记录（2026-02）
 
 **验收命令与真实输出**（AGENTS.md §10 M4：`cd frontend && npm run build && npm run typecheck`）：
@@ -951,6 +1012,22 @@ M3 的实现是 `pool = 当前 items`，于是**移除一个志愿后无法再�
       且打印样式把 URL 展开到纸面
 - [x] 类型从 OpenAPI 生成，无手写重复类型（`src/api/schema.d.ts` 由 `pnpm gen:api` 生成且 gitignore）
 - [x] 首屏就是建档向导（`/` → `/profile`），前 3 步是硬门槛；`missing_fields` 非空时推荐页阻断式拦截
+
+**跟进修复（ADR-012，用户终端 `pnpm dev` 实测）**：
+
+```text
+用户终端 pnpm 12.4.1（策略全开）：
+  node "...\pnpm\bin\pnpm.mjs" install --frozen-lockfile
+    ? Verifying lockfile against supply-chain policies (250 entries)...
+    ✓ Lockfile passes supply-chain policies (250 entries in 4.5s)     （exit=0）✅
+  同一条命令在修复前：ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION（4 个条目被拒）
+
+  node "...\pnpm\bin\pnpm.mjs" run typecheck   → exit 0（deps 状态检查一并通过）✅
+  node "...\pnpm\bin\pnpm.mjs" run build       → ✓ 610 modules · built in 9.79s
+                                                产物哈希与降级前完全一致 ✅
+  node "...\pnpm\bin\pnpm.mjs" dev             → predev(gen:api) ✓ → VITE v6.4.3 ready in 1992 ms
+                                                 GET / → 200 · GET /src/main.tsx → 200 ✅
+```
 
 **本轮未做 / 已知限制（诚实披露）**：
 

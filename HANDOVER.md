@@ -68,7 +68,8 @@
 | 测试前置 | `pytest backend/tests` 依赖**已播种**的数据库；未播种会明确失败（不静默跳过） |
 | PowerShell 坑 | **不要用 `curl.exe -d '{"json"}'` 发 POST**（双引号被吃 → 422）；用 `Invoke-RestMethod` + `ConvertTo-Json` |
 | 终端中文 | 先 `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8` |
-| pnpm | 11.8.0。构建脚本白名单在 `frontend/pnpm-workspace.yaml`（**不再**读 package.json 的 `pnpm` 字段） |
+| pnpm | 工程设置写在 `frontend/pnpm-workspace.yaml`（**不再**读 package.json 的 `pnpm` 字段）：`allowBuilds` + `minimumReleaseAge` |
+| **两个 pnpm** | ★ agent 会话里的 `pnpm` 是 **DSH shim（11.8.0，`minimumReleaseAge=0`）**；用户终端里的是**全局 pnpm 12.4.1**（默认 24h 供应链防护）。**凡涉及前端依赖，必须用全局 pnpm 复核**：`node "C:\nvm4w\nodejs\node_modules\pnpm\bin\pnpm.mjs" install --frozen-lockfile`。否则会重犯 ADR-012 的错（生成"本机合规、用户机不合规"的 lockfile） |
 | `debug.log` | 根目录若出现，是 DSH Desktop 的 Electron crashpad 日志，非项目产物（已 gitignore） |
 
 ---

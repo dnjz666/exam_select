@@ -295,6 +295,8 @@ exam_select/
 | pip 卡住 10 分钟以上 | 用 `scripts\pip_online.ps1`（已 pin 超时 15s / 重试 2 次）；镜像不通加 `-ViaProxy` |
 | `无法加载文件 … 因为在此系统上禁止运行脚本` | 用 `powershell -ExecutionPolicy Bypass -File scripts\pip_online.ps1` |
 | 前端 `spawn EPERM`（`pnpm build` / `dev` / `test`） | esbuild 需要 spawn 子进程，agent 沙箱禁止 → **在真实终端跑**；`pnpm typecheck` 不受影响 |
+| `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION` / `Lockfile failed supply-chain policy check` | pnpm 12 的 24 小时供应链防护挡下了太新的版本。本工程已在 `frontend/pnpm-workspace.yaml` 显式固定 `minimumReleaseAge: 1440` 并据此重建 lockfile。**若再次出现**：先 `pnpm install --frozen-lockfile` 看是哪几个包 → 多半只需等满 24 小时，或把该包加进 `minimumReleaseAgeExclude`（显式豁免，PR 说明理由）。**不要**把 `minimumReleaseAge` 改成 0 |
+| 同一份 lockfile 在 A 机器过、B 机器挂 | 两台机器的 pnpm **大版本不同**（pnpm 11 没有该默认策略、pnpm 12 有）。本仓库已显式固定策略值；诊断用 `pnpm config list` 看 `minimumReleaseAge` 的有效值 |
 | `curl.exe` 报 `schannel: AcquireCredentialsHandle failed` | 本机 schannel 在 agent 沙箱内不可用；改用 Node（`pnpm install` / `node scripts/*.mjs` 都正常） |
 | `pnpm install` 报 `ERR_PNPM_IGNORED_BUILDS` / esbuild postinstall EPERM | 已在 `frontend/pnpm-workspace.yaml` 显式 `allowBuilds: esbuild: false`（原生二进制由可选依赖提供） |
 | 前端 `gen:api` 报"无法获取实时 OpenAPI" | 后端没起。启动后重跑；离线时会自动回退 `frontend/openapi.snapshot.json` |
