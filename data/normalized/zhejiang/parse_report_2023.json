@@ -1,0 +1,15 @@
+{
+  "year": 2023,
+  "pdf": "浙江省普通高校招生投档及专业录取情况（2023）.pdf",
+  "records": 20755,
+  "stats": {
+    "colleges": 2461,
+    "OK": 19769,
+    "MISSING_RANK": 984,
+    "COLLECTED": 2,
+    "seg1_line": 488,
+    "seg2_line": 274
+  },
+  "problems": [],
+  "problem_count": 0
+}

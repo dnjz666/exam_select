@@ -1,0 +1,256 @@
+{
+  "package": "ScoreLines_zj",
+  "raw_sources": {
+    "2024": {
+      "files": [
+        {
+          "file": "data/raw/zhejiang/2024/浙江省普通高校招生投档及专业录取情况（2024）.pdf",
+          "sha256": "01bab62be4dbd68708d08de27255469ccd688836e4a48cc7fc60dde10417ab6f",
+          "bytes": 6005245,
+          "source_url": "https://www.zjzs.net/module/download/downfile.jsp?classid=0&showname=%E6%B5%99%E6%B1%9F%E7%9C%81%E6%99%AE%E9%80%9A%E9%AB%98%E6%A0%A1%E6%8B%9B%E7%94%9F%E6%8A%95%E6%A1%A3%E5%8F%8A%E4%B8%93%E4%B8%9A%E5%BD%95%E5%8F%96%E6%83%85%E5%86%B5%EF%BC%882024%EF%BC%89.pdf&filename=295dcf296207484b8dfa397615f38bf8.pdf",
+          "note": "浙江省教育考试院《2023年至2025年浙江省普通高校招生投档及专业录取情况》原文附件"
+        },
+        {
+          "file": "data/raw/zhejiang/2024/副本副本浙江省2024年普通高校招生普通类第一段平行投档分数线表11(1).xls",
+          "sha256": "c8a523b148681432287e1b2034bde7e93ca84630df1574249703d8930f639b12",
+          "bytes": 2063872,
+          "source_url": "",
+          "note": "浙江省教育考试院公开数据",
+          "origin": "reconciled"
+        }
+      ]
+    },
+    "2026": {
+      "files": [
+        {
+          "file": "data/raw/zhejiang/2026/浙江省2026年普通高校招生普通类第一段平行投档分数线表.xls",
+          "sha256": "0b51df836531ffed2b83eb824bd94a2d2febea01ccd8b8d0d0871cdcee7f45fd",
+          "bytes": 2138624,
+          "source_url": "https://www.zjzs.net/module/download/downfile.jsp?classid=0&showname=%E6%B5%99%E6%B1%9F%E7%9C%812026%E5%B9%B4%E6%99%AE%E9%80%9A%E9%AB%98%E6%A0%A1%E6%8B%9B%E7%94%9F%E6%99%AE%E9%80%9A%E7%B1%BB%E7%AC%AC%E4%B8%80%E6%AE%B5%E5%B9%B3%E8%A1%8C%E6%8A%95%E6%A1%A3%E5%88%86%E6%95%B0%E7%BA%BF%E8%A1%A8.xls&filename=22238acf41fe4b17b534e4c1f258846d.xls",
+          "note": "浙江省教育考试院 2026-07-21 原文附件"
+        }
+      ]
+    },
+    "2021": {
+      "files": [
+        {
+          "file": "data/raw/zhejiang/2021/浙江省2021年普通高校招生普通类第一段平行投档分数线表.rar",
+          "sha256": "ff72e017ba7deec11e61800c2bd0e4461366567933c2545945a05fea3ce53ff6",
+          "bytes": 422348,
+          "source_url": "https://www.zjzs.net/picture/0/plug-in/ueditor/jsp/upload/20210719/16811626661690633.rar",
+          "note": "浙江省教育考试院 2021-07-19 原文附件"
+        },
+        {
+          "file": "data/raw/zhejiang/2021/浙江省2021年普通高校招生普通类第一段平行投档分数线表.xls",
+          "sha256": "ca08e8548e20e3f6e07f6908c1b1c53a1a10609d8c927cf88def93a71c001002",
+          "bytes": 2090496,
+          "source_url": "https://www.zjzs.net/picture/0/plug-in/ueditor/jsp/upload/20210719/16811626661690633.rar",
+          "note": "由同目录压缩包解出：浙江省2021年普通高校招生普通类第一段平行投档分数线表.rar",
+          "origin": "reconciled"
+        }
+      ]
+    },
+    "2023": {
+      "files": [
+        {
+          "file": "data/raw/zhejiang/2023/浙江省普通高校招生投档及专业录取情况（2023）.pdf",
+          "sha256": "a3bc5e30825246dbd2339e91aba63ac8fe41560976334309f47be28718381aed",
+          "bytes": 5334127,
+          "source_url": "https://www.zjzs.net/module/download/downfile.jsp?classid=0&showname=%E6%B5%99%E6%B1%9F%E7%9C%81%E6%99%AE%E9%80%9A%E9%AB%98%E6%A0%A1%E6%8B%9B%E7%94%9F%E6%8A%95%E6%A1%A3%E5%8F%8A%E4%B8%93%E4%B8%9A%E5%BD%95%E5%8F%96%E6%83%85%E5%86%B5%EF%BC%882023%EF%BC%89.pdf&filename=8598b2f0dc0b491db72ae3715d7d6d6c.pdf",
+          "note": "浙江省教育考试院《2023年至2025年浙江省普通高校招生投档及专业录取情况》原文附件"
+        }
+      ]
+    },
+    "2025": {
+      "files": [
+        {
+          "file": "data/raw/zhejiang/2025/浙江省普通高校招生投档及专业录取情况（2025）.pdf",
+          "sha256": "d4130977fb9f33d8426a1461fbef3cf016c3fa6e4d73e5791a706f6cff56204e",
+          "bytes": 6593412,
+          "source_url": "https://www.zjzs.net/module/download/downfile.jsp?classid=0&showname=%E6%B5%99%E6%B1%9F%E7%9C%81%E6%99%AE%E9%80%9A%E9%AB%98%E6%A0%A1%E6%8B%9B%E7%94%9F%E6%8A%95%E6%A1%A3%E5%8F%8A%E4%B8%93%E4%B8%9A%E5%BD%95%E5%8F%96%E6%83%85%E5%86%B5%EF%BC%882025%EF%BC%89.pdf&filename=31bcbe901d224ebc9505f2d1c9e9a578.pdf",
+          "note": "浙江省教育考试院《2023年至2025年浙江省普通高校招生投档及专业录取情况》原文附件"
+        }
+      ]
+    },
+    "2022": {
+      "files": [
+        {
+          "file": "data/raw/zhejiang/2022/浙江省2022年普通高校招生普通类第一段平行投档分数线表.rar",
+          "sha256": "c3b5ffe351f6e829090e2f0ed49505cf81024b5a55dd8b2f66c3fc68b7db788c",
+          "bytes": 343940,
+          "source_url": "https://zs.tzvtc.edu.cn/UpLoadFiels/rar/2022-7/20220725104358463.rar",
+          "note": "转载源：台州职业技术学院招生网（院校官网转载浙江省教育考试院原表；官方 zjzs.net 的 2022 合编 PDF 为扫描件）"
+        },
+        {
+          "file": "data/raw/zhejiang/2022/浙江省2022年普通高校招生普通类第一段平行投档分数线表.xls",
+          "sha256": "118b2c1d9cf70e91b080755a9691f95814021efdde85c9f7a0e2c0cf05260223",
+          "bytes": 1826304,
+          "source_url": "https://zs.tzvtc.edu.cn/UpLoadFiels/rar/2022-7/20220725104358463.rar",
+          "note": "由同目录压缩包解出：浙江省2022年普通高校招生普通类第一段平行投档分数线表.rar",
+          "origin": "reconciled"
+        },
+        {
+          "file": "data/raw/zhejiang/2022/浙江省普通高校招生投档及专业录取情况（2022）.pdf",
+          "sha256": "b3e92117f1e6a32302ecf77bc7a1fdc94c09c619dd55bc0d7f3d2edf611a828a",
+          "bytes": 48337094,
+          "source_url": "https://zs.tzvtc.edu.cn/UpLoadFiels/rar/2022-7/20220725104358463.rar",
+          "note": "由同目录压缩包解出：浙江省2022年普通高校招生普通类第一段平行投档分数线表.rar",
+          "origin": "reconciled"
+        },
+        {
+          "file": "data/raw/zhejiang/2022/浙江省普通高校招生投档及专业录取情况（2022）.rar",
+          "sha256": "e61a0e06b0e296e9df60e0178f9ba27cf5da6610336acf1178d5f493356d1ae7",
+          "bytes": 16102296,
+          "source_url": "https://zs.tzvtc.edu.cn/UpLoadFiels/rar/2022-7/20220725104358463.rar",
+          "note": "由同目录压缩包解出：浙江省2022年普通高校招生普通类第一段平行投档分数线表.rar",
+          "origin": "reconciled"
+        }
+      ]
+    }
+  },
+  "original_file_names": {
+    "01_投档分数线表/浙江省2021年普通高校招生普通类第一段平行投档分数线表.xls": "浙江省2021年普通高校招生普通类第一段平行投档分数线表.xls",
+    "01_投档分数线表/浙江省2022年普通高校招生普通类第一段平行投档分数线表.rar": "浙江省2022年普通高校招生普通类第一段平行投档分数线表.rar",
+    "01_投档分数线表/浙江省2022年普通高校招生普通类第一段平行投档分数线表.xls": "浙江省2022年普通高校招生普通类第一段平行投档分数线表.xls",
+    "02_投档及专业录取情况/浙江省普通高校招生投档及专业录取情况（2023）.pdf": "浙江省普通高校招生投档及专业录取情况（2023）.pdf",
+    "01_投档分数线表/浙江省2024年普通高校招生普通类第一段平行投档分数线表.xls": "副本副本浙江省2024年普通高校招生普通类第一段平行投档分数线表11(1).xls",
+    "02_投档及专业录取情况/浙江省普通高校招生投档及专业录取情况（2024）.pdf": "浙江省普通高校招生投档及专业录取情况（2024）.pdf",
+    "02_投档及专业录取情况/浙江省普通高校招生投档及专业录取情况（2025）.pdf": "浙江省普通高校招生投档及专业录取情况（2025）.pdf",
+    "01_投档分数线表/浙江省2026年普通高校招生普通类第一段平行投档分数线表.xls": "浙江省2026年普通高校招生普通类第一段平行投档分数线表.xls"
+  },
+  "excluded": {
+    "浙江省2021年普通高校招生普通类第一段平行投档分数线表.rar": "压缩包，内容与已解出的 2021 年 .xls 完全重复；导入只用 .xls",
+    "浙江省普通高校招生投档及专业录取情况（2022）.pdf": "扫描件（366 页、每页一张图、无文本层），无法解析导入；2022 年数据已由 01 目录下的官方年度一段表 .xls 覆盖",
+    "浙江省普通高校招生投档及专业录取情况（2022）.rar": "同上，且与已解出的 PDF 内容重复"
+  },
+  "files": {
+    "01_投档分数线表/浙江省2021年普通高校招生普通类第一段平行投档分数线表.xls": {
+      "bytes": 2090496,
+      "sha256": "ca08e8548e20e3f6e07f6908c1b1c53a1a10609d8c927cf88def93a71c001002"
+    },
+    "01_投档分数线表/浙江省2022年普通高校招生普通类第一段平行投档分数线表.rar": {
+      "bytes": 343940,
+      "sha256": "c3b5ffe351f6e829090e2f0ed49505cf81024b5a55dd8b2f66c3fc68b7db788c"
+    },
+    "01_投档分数线表/浙江省2022年普通高校招生普通类第一段平行投档分数线表.xls": {
+      "bytes": 1826304,
+      "sha256": "118b2c1d9cf70e91b080755a9691f95814021efdde85c9f7a0e2c0cf05260223"
+    },
+    "01_投档分数线表/浙江省2024年普通高校招生普通类第一段平行投档分数线表.xls": {
+      "bytes": 2063872,
+      "sha256": "c8a523b148681432287e1b2034bde7e93ca84630df1574249703d8930f639b12"
+    },
+    "01_投档分数线表/浙江省2026年普通高校招生普通类第一段平行投档分数线表.xls": {
+      "bytes": 2138624,
+      "sha256": "0b51df836531ffed2b83eb824bd94a2d2febea01ccd8b8d0d0871cdcee7f45fd"
+    },
+    "02_投档及专业录取情况/浙江省普通高校招生投档及专业录取情况（2023）.pdf": {
+      "bytes": 5334127,
+      "sha256": "a3bc5e30825246dbd2339e91aba63ac8fe41560976334309f47be28718381aed"
+    },
+    "02_投档及专业录取情况/浙江省普通高校招生投档及专业录取情况（2024）.pdf": {
+      "bytes": 6005245,
+      "sha256": "01bab62be4dbd68708d08de27255469ccd688836e4a48cc7fc60dde10417ab6f"
+    },
+    "02_投档及专业录取情况/浙江省普通高校招生投档及专业录取情况（2025）.pdf": {
+      "bytes": 6593412,
+      "sha256": "d4130977fb9f33d8426a1461fbef3cf016c3fa6e4d73e5791a706f6cff56204e"
+    },
+    "03_规范化CSV/colleges_2023_浙江.csv": {
+      "bytes": 3527,
+      "sha256": "79a45536e60fc42750dac5b35ad8923fb8eafa239e802555ae1f324f4e08d346"
+    },
+    "03_规范化CSV/colleges_2024_浙江.csv": {
+      "bytes": 2591,
+      "sha256": "d0c0dd3dd366e86249dd28f1af2dab0791c2d0ee8949551536943133a1c8a190"
+    },
+    "03_规范化CSV/colleges_2025_浙江.csv": {
+      "bytes": 4238,
+      "sha256": "f502ec0956c312865ac1752e6a5583b7376f3ba4a6ecc1ac64ec45f01450411a"
+    },
+    "03_规范化CSV/colleges_zhejiang_local.csv": {
+      "bytes": 7461,
+      "sha256": "2ff2069d2599a5a2fb9d8aa99a93f3a454ea0ad6941c369255c810b3044e6229"
+    },
+    "03_规范化CSV/summary.json": {
+      "bytes": 2160,
+      "sha256": "1376aae7429575ffc9246c09cd1ecf85655685747d7dcf664391f22a33c5ac1a"
+    },
+    "03_规范化CSV/zhejiang_colleges_by_year.csv": {
+      "bytes": 105158,
+      "sha256": "935668d2437eba9bcc8109299243583f1dc95e53df8ff34ecf3c873a8163f171"
+    },
+    "03_规范化CSV/zhejiang_parallel_compilation_2023.csv": {
+      "bytes": 2814429,
+      "sha256": "72db9f839c800c3104d5e098d7795b18b586686581c08b8b7f1eacdd2189dcc0"
+    },
+    "03_规范化CSV/zhejiang_parallel_compilation_2024.csv": {
+      "bytes": 3072690,
+      "sha256": "fbea5e263add2fe8bad0e6d2cee665c2d1c4b48a7cd273bc83771bd26cfb7415"
+    },
+    "03_规范化CSV/zhejiang_parallel_compilation_2025.csv": {
+      "bytes": 3268096,
+      "sha256": "f0b8870b624d62e4b31ab5eda48a69dc8ebc21c6e59aa1df32d555882e3d91b2"
+    },
+    "03_规范化CSV/zhejiang_parallel_seg1_2021.csv": {
+      "bytes": 1120698,
+      "sha256": "d29dbc8fc3b6e0c4e48cea9a73d86ba11110517d291885c0b61801821b3c913b"
+    },
+    "03_规范化CSV/zhejiang_parallel_seg1_2022.csv": {
+      "bytes": 1210558,
+      "sha256": "e710ed87bdf93855a07b31dde4a291452aba602753ac088625a15f97397d6ea0"
+    },
+    "03_规范化CSV/zhejiang_parallel_seg1_2024.csv": {
+      "bytes": 1165709,
+      "sha256": "836945c3dc032d0ff1d976b3351e355d82d2a79c723e537a298a251fbf8caef4"
+    },
+    "03_规范化CSV/zhejiang_parallel_seg1_2026.csv": {
+      "bytes": 1279140,
+      "sha256": "1df8298bb36f4dbb2ddc6b87dc90bbb9989fbf41dbcde7524a8ae325e0c86daf"
+    },
+    "04_寝室与校园环境/chunk_01.json": {
+      "bytes": 22413,
+      "sha256": "57e8edd2dc7ca87f9246b7a4953302941f6c6aa361e58d800029dc4e53170ca8"
+    },
+    "04_寝室与校园环境/chunk_02.json": {
+      "bytes": 24038,
+      "sha256": "f144920e23fec177e0033d056f59f205808f0d6aad4413f092968254e3184593"
+    },
+    "04_寝室与校园环境/chunk_03.json": {
+      "bytes": 27792,
+      "sha256": "bfe88f152b3cf91abc2a53a45595f63ec0e1470f3f5b4ae04e607e679be51ede"
+    },
+    "04_寝室与校园环境/dorm_campus.json": {
+      "bytes": 71834,
+      "sha256": "6051860874ce749277b1af2b64ab2cc9277149d8ebc094913db055f14eb2790f"
+    },
+    "04_寝室与校园环境/dorm_campus_summary.csv": {
+      "bytes": 20689,
+      "sha256": "971d0c42712be1d20b0b4aef5f0596c3cd6279b085076caaa6fd1c5978bca0da"
+    },
+    "05_原始网页存档/2021_seg1.html": {
+      "bytes": 6813,
+      "sha256": "19aca294d32be3174e26ca895d126a9d73f9d13483307e3afb2bec1931454426"
+    },
+    "05_原始网页存档/art_45_12416.html": {
+      "bytes": 8693,
+      "sha256": "542933b5fa5e6604bd9abaea5223f1eaff8f6280eb958d72fd2bde74d702b408"
+    },
+    "05_原始网页存档/art_45_12550.html": {
+      "bytes": 7235,
+      "sha256": "0b0ac9979fa7f865c3c0122017269955188f741c6127de2b579173769681530d"
+    },
+    "05_原始网页存档/art_45_9726.html": {
+      "bytes": 8763,
+      "sha256": "6f032688792edeaae9d5574fec45172f41f0728f85ebf7d0937124bcb0c569a9"
+    },
+    "05_原始网页存档/col45.html": {
+      "bytes": 22339,
+      "sha256": "d672cabf27a59459e6cb917417ea8919652db7dfdc11f02b0327e4a6ac091295"
+    }
+  },
+  "dorm_campus": {
+    "schools": 29,
+    "with_evidence": 29
+  }
+}

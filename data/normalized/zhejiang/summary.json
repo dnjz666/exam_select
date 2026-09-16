@@ -1,0 +1,84 @@
+{
+  "2021": {
+    "source_file": "data/raw/zhejiang/2021/浙江省2021年普通高校招生普通类第一段平行投档分数线表.xls",
+    "rows": 15088,
+    "colleges": 1177,
+    "plan_total": 155666,
+    "score_range": [
+      495,
+      715
+    ],
+    "rank_range": [
+      2,
+      160509
+    ],
+    "missing_rank": 1049,
+    "missing_score": 0,
+    "problems": [],
+    "problem_count": 0,
+    "footers": [],
+    "csv": "data/normalized/zhejiang/zhejiang_parallel_seg1_2021.csv"
+  },
+  "2022": {
+    "source_file": "data/raw/zhejiang/2022/浙江省2022年普通高校招生普通类第一段平行投档分数线表.xls",
+    "rows": 15912,
+    "colleges": 1201,
+    "plan_total": 163293,
+    "score_range": [
+      497,
+      710
+    ],
+    "rank_range": [
+      1,
+      170272
+    ],
+    "missing_rank": 883,
+    "missing_score": 0,
+    "problems": [],
+    "problem_count": 0,
+    "footers": [],
+    "csv": "data/normalized/zhejiang/zhejiang_parallel_seg1_2022.csv"
+  },
+  "2024": {
+    "source_file": "data/raw/zhejiang/2024/副本副本浙江省2024年普通高校招生普通类第一段平行投档分数线表11(1).xls",
+    "rows": 17241,
+    "colleges": 1258,
+    "plan_total": 173914,
+    "score_range": [
+      492,
+      721
+    ],
+    "rank_range": [
+      2,
+      178041
+    ],
+    "missing_rank": 1856,
+    "missing_score": 0,
+    "problems": [],
+    "problem_count": 0,
+    "footers": [],
+    "csv": "data/normalized/zhejiang/zhejiang_parallel_seg1_2024.csv"
+  },
+  "2026": {
+    "source_file": "data/raw/zhejiang/2026/浙江省2026年普通高校招生普通类第一段平行投档分数线表.xls",
+    "rows": 18543,
+    "colleges": 1289,
+    "plan_total": 185742,
+    "score_range": [
+      494,
+      708
+    ],
+    "rank_range": [
+      15,
+      184813
+    ],
+    "missing_rank": 1140,
+    "missing_score": 0,
+    "problems": [],
+    "problem_count": 0,
+    "footers": [
+      "注：位次栏目为空的，表示该学校专业本轮投档人数未满。"
+    ],
+    "csv": "data/normalized/zhejiang/zhejiang_parallel_seg1_2026.csv"
+  }
+}
