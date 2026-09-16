@@ -32,8 +32,14 @@ from app.etl.synthetic import GROUND_TRUTH_YEAR  # noqa: E402
 from app.services.backtest_data import load_backtest_context  # noqa: E402
 
 GRID: dict[str, list[float | int]] = {
-    # 跨省稳定性验证：只在 safety_margin 上比较（其余参数保持文档默认值，避免过拟合）
-    "safety_margin": [0.25, 0.30],
+    # 跨省稳定性验证：只在少数几个与校准直接相关的参数上比较
+    # （分层边界 §6.3 与配额不属于本脚本范围，避免过拟合）。
+    #
+    # 2026-02 M5 期间放宽了网格：修复 M1 的候选院校池缺陷后（原实现按 id 排序截断，
+    # 导致浙江/上海/山东/天津的本省院校被整段丢掉），回测样本变了，
+    # 原来标定的 safety_margin=0.30 不再达标（稳档 86.0% → 81.6%）。
+    # **在修正后的数据上重新标定**才是正确做法——旧标定是在有偏样本上做的。
+    "safety_margin": [0.30, 0.40, 0.50, 0.60, 0.75],
     "min_sigma_abs": [300.0],
     "min_sigma_rel": [0.03],
     "cv_threshold": [0.15],

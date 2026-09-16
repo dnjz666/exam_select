@@ -60,6 +60,17 @@ class Settings(BaseSettings):
     # 模型参数：默认值全部来自 ModelParams（DOMAIN_RULES.md §3），可用环境变量按需覆盖
     model_params: ModelParams = Field(default_factory=ModelParams)
 
+    # ---- LLM（M5 agent 层，AGENTS.md §4.1：provider 可插拔；必须可替换、可 mock）----
+    #: none = 不接 LLM，/chat 走 app/agent/parser.py 的确定性路径（零编造、可单测）。
+    #: openai = OpenAI 兼容的 /chat/completions（DeepSeek / Qwen / vLLM 等同理）。
+    llm_provider: str = "none"
+    llm_base_url: str = "https://api.openai.com/v1"
+    llm_api_key: str = ""
+    llm_model: str = "gpt-4o-mini"
+    llm_timeout_seconds: float = 30.0
+    #: 单轮对话内最多允许几轮"模型请求工具 → 工具返回"的往返（防止自激循环）
+    llm_max_tool_rounds: int = 4
+
     @field_validator("database_url")
     @classmethod
     def _anchor_database_url(cls, value: str) -> str:
@@ -68,6 +79,11 @@ class Settings(BaseSettings):
     @property
     def is_dev(self) -> bool:
         return self.app_environment == "dev"
+
+    @property
+    def llm_enabled(self) -> bool:
+        """只有"选了 provider **且**配了 key"才启用：缺一样就老实用确定性路径。"""
+        return self.llm_provider not in ("", "none") and bool(self.llm_api_key)
 
 
 @lru_cache

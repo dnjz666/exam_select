@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { streamChat, ApiError, type ChatMessage } from '../api/client'
+import { api, streamChat, ApiError, type ChatMessage } from '../api/client'
 import { Disclaimer } from '../components/Disclaimer'
 import { ErrorNote } from '../components/StateBlocks'
 import { formatDateTime } from '../lib/format'
@@ -8,18 +8,62 @@ import { missingFieldLabel } from '../lib/labels'
 import { useProfileStore } from '../store/profile'
 
 const SUGGESTIONS = [
-  '我的档案还缺什么？',
-  '我这个位次大概能报什么层次的学校？',
-  '什么是"专业(类)+院校"和"院校专业组"的区别？',
-  '为什么不服从调剂会退档？',
+  '帮我看看档案还缺什么？',
+  '我是浙江考生，选了物理化学生物，考了 640 分',
+  '浙江最多能填几个志愿？有没有专业调剂？',
+  '查一下合肥工业大学的投档历史',
 ]
+
+/** 本轮调用的工具（后端 ``tool_calls`` 的形状）。 */
+interface ToolCallRecord {
+  name: string
+  arguments?: Record<string, unknown>
+  result?: Record<string, unknown>
+}
+
+const TOOL_LABELS: Record<string, string> = {
+  get_rank_by_score: '按分数查位次（一分一段表）',
+  get_score_by_rank: '按位次反查分数',
+  search_units: '检索投档单位',
+  get_unit_history: '查该单位历年投档',
+  estimate_probability: '估算录取概率',
+  recommend_units: '生成推荐列表',
+  generate_plan: '生成志愿表预览（不保存）',
+  scan_risks: '扫描志愿风险',
+  get_college_profile: '查院校档案',
+  get_major_profile: '查专业档案',
+  list_missing_fields: '检查档案完整度',
+  get_province_rule: '查省份投档规则',
+}
+
+/** 构造本地消息：契约里这些字段是必填的（Pydantic 有默认值 → OpenAPI 标记 required）。 */
+function localMessage(
+  role: 'user' | 'assistant',
+  content: string,
+  extra: Partial<ChatMessage> = {},
+): ChatMessage {
+  return {
+    id: `local-${role}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    session_id: '',
+    role,
+    content,
+    created_at: new Date().toISOString(),
+    missing_fields: [],
+    tool_calls: [],
+    mode: null,
+    blocked: false,
+    ...extra,
+  }
+}
 
 /**
  * 对话页（AGENTS.md §8.2 `/chat`）。
  *
- * ⚠️ **能力边界必须如实标注**：M3 的 `/chat` 只有 SSE 通道 + 会话历史 + 防幻觉底线，
- * 回复里**不含任何数字**（§0 最高原则）；真正的工具化回答（查位次、查历史、跑概率）在 M5。
- * 前端不能把"还不会查数据"包装成"已经能给你建议"。
+ * M5 起这是**真能查数据的助手**：每条回复都带 ``tool_calls``，
+ * 考生能看到"这句话里的数字是查了哪个工具得来的"。
+ *
+ * 界面仍然如实标注边界：助手只能转述工具返回的数字；自己算、自己编的部分会被护栏拦掉
+ * （被拦时本条消息会标出 ``blocked``，这不是故障，而是防护生效的痕迹）。
  */
 export function ChatPage() {
   const profile = useProfileStore()
@@ -29,6 +73,7 @@ export function ChatPage() {
   const [draft, setDraft] = useState('')
   const [error, setError] = useState<unknown>(null)
   const [missingFields, setMissingFields] = useState<string[]>([])
+  const [notice, setNotice] = useState<string | null>(null)
   const sessionRef = useRef<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -44,14 +89,14 @@ export function ChatPage() {
     setMissingFields([])
     setInput('')
     setDraft('')
-    setMessages((current) => [
-      ...current,
-      { id: `local-${Date.now()}`, session_id: sessionRef.current ?? '', role: 'user', content: trimmed },
-    ])
+    setMessages((current) => [...current, localMessage('user', trimmed)])
     setStreaming(true)
     const controller = new AbortController()
     abortRef.current = controller
     let assembled = ''
+    let toolCalls: ToolCallRecord[] = []
+    let mode: string | null = null
+    let blocked = false
 
     try {
       await streamChat(
@@ -77,9 +122,26 @@ export function ChatPage() {
           if (event.event === 'done') {
             const content = event.data['content']
             const fields = event.data['missing_fields']
+            const calls = event.data['tool_calls']
             if (typeof content === 'string') assembled = content
             if (Array.isArray(fields)) {
               setMissingFields(fields.filter((item): item is string => typeof item === 'string'))
+            }
+            if (Array.isArray(calls)) toolCalls = calls as ToolCallRecord[]
+            if (typeof event.data['mode'] === 'string') mode = event.data['mode']
+            blocked = event.data['blocked'] === true
+
+            // 对话式建档：后端可能在这一轮新建了档案，前端必须接住这个 id，
+            // 否则下一条消息会被当成"还没有档案"而重复建档。
+            const returned = event.data['student_id']
+            if (typeof returned === 'string' && returned !== profile.studentId) {
+              void api.students
+                .get(returned)
+                .then((envelope) => {
+                  profile.setStudent(envelope.data)
+                  setNotice('已根据你的描述建立档案草稿，可在「建档向导」里核对或补充。')
+                })
+                .catch(() => undefined)
             }
           }
         },
@@ -87,13 +149,12 @@ export function ChatPage() {
       )
       setMessages((current) => [
         ...current,
-        {
-          id: `local-a-${Date.now()}`,
+        localMessage('assistant', assembled, {
           session_id: sessionRef.current ?? '',
-          role: 'assistant',
-          content: assembled,
-          created_at: new Date().toISOString(),
-        },
+          tool_calls: toolCalls as unknown as ChatMessage['tool_calls'],
+          mode,
+          blocked,
+        }),
       ])
     } catch (caught) {
       if (!(caught instanceof DOMException && caught.name === 'AbortError')) setError(caught)
@@ -111,19 +172,31 @@ export function ChatPage() {
         <p className="muted mt-1">建档、追问、解释——但数字只由算法给出，助手不会凭印象报数字。</p>
       </div>
 
-      <div className="callout-warn">
-        <p className="font-medium">能力边界（如实说明）</p>
+      <div className="callout-info">
+        <p className="font-medium">这个助手能做什么（如实说明）</p>
         <ul className="mt-1 list-inside list-disc text-sm">
           <li>
-            当前阶段（M3）的对话**还不能查数据**：它不会、也不允许说出任何分数线、位次、录取率或计划数。
+            **能查数据**：把分数换算成位次、查各省投档规则、查某所院校的历年投档、按你的档案推荐、
+            扫志愿表风险——每条回复下方都能展开看它**查了哪个工具**。
           </li>
-          <li>完整的工具化回答（查位次、查历史、跑概率、解释结果）在 M5 交付。</li>
           <li>
-            需要真实数字时，请用「推荐列表」与「志愿表」页——那里的每个数字都有来源与证据链。
+            **数字只来自工具**：助手自己算或自己编的部分会被**幻觉护栏**拦掉。
+            如果某条回复标了「已被护栏拦截」，那不是故障，而是防护生效——它想说一个没有出处的数字，
+            被换成了"我需要先查数据"。
           </li>
-          <li>会话历史存在服务端内存中，重启后端即清空。</li>
+          <li>
+            **可以对话建档**：直接说你所在省份 + 3 门选考 + 总分（知道位次就一并说），
+            我会写进档案草稿；缺什么我就问什么，不会替你假设。
+          </li>
+          <li>会话历史已落库，重启后端不会丢。</li>
         </ul>
       </div>
+
+      {notice && (
+        <p className="callout-muted text-sm" role="status">
+          {notice}
+        </p>
+      )}
 
       <div className="card">
         <div className="max-h-[28rem] space-y-3 overflow-y-auto p-4">
@@ -155,11 +228,31 @@ export function ChatPage() {
                   : 'mr-auto border border-slate-200 bg-slate-50 text-slate-800',
               ].join(' ')}
             >
-              <p className="mb-1 text-[10px] uppercase tracking-wide opacity-70">
-                {message.role === 'user' ? '你' : '名师助手'}
-                {message.created_at ? ` · ${formatDateTime(message.created_at)}` : ''}
+              <p className="mb-1 flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-wide opacity-70">
+                <span>{message.role === 'user' ? '你' : '名师助手'}</span>
+                {message.created_at ? <span>{formatDateTime(message.created_at)}</span> : null}
+                {message.role === 'assistant' && message.mode ? <span>{message.mode}</span> : null}
+                {message.blocked ? (
+                  <span className="chip bg-rose-100 text-rose-800 ring-1 ring-rose-300">
+                    已被护栏拦截
+                  </span>
+                ) : null}
               </p>
               {message.content}
+              {message.role === 'assistant' && (message.tool_calls?.length ?? 0) > 0 && (
+                <details className="mt-2">
+                  <summary className="cursor-pointer text-xs text-slate-500">
+                    查了什么（{message.tool_calls?.length ?? 0} 次工具调用）
+                  </summary>
+                  <ol className="mt-1 space-y-0.5 text-xs text-slate-500">
+                    {(message.tool_calls as unknown as ToolCallRecord[]).map((call, index) => (
+                      <li key={`${call.name}-${index}`}>
+                        {TOOL_LABELS[call.name] ?? call.name}
+                      </li>
+                    ))}
+                  </ol>
+                </details>
+              )}
             </div>
           ))}
 

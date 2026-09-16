@@ -43,6 +43,44 @@ def test_minimum_volumes(dataset) -> None:
     assert set(PROVINCE_PROFILES) <= {u["province"] for u in dataset.admission_units}
 
 
+def test_every_province_pool_contains_its_own_colleges(dataset) -> None:
+    """★ 回归：每个省的候选院校池**必须包含本省院校**。
+
+    原实现在合并 ``local + strong + sampled`` 之后按院校 id 排序再截断 ``[:MAX]``，
+    而 id 以省名开头 → 排在后半段的省份本省院校被整段丢掉。
+    实测后果：浙江/上海/山东/天津的考生候选池里**本省院校数为 0**
+    （浙江考生永远看不到浙江大学），外省普通院校的抽样名额也被截断吃掉。
+    这条测试锁住修复，防止上限或排序方式再被改回去。
+    """
+    colleges = {c["id"]: c for c in dataset.colleges}
+    for province in PROVINCE_PROFILES:
+        units = [u for u in dataset.admission_units if u["province"] == province]
+        assert units, province
+        local_colleges = {
+            u["college_id"] for u in units if colleges[u["college_id"]]["province"] == province
+        }
+        assert local_colleges, (
+            f"{province} 的候选池里没有任何本省院校——截断又把本省院校吃掉了（见 ADR-014）"
+        )
+
+
+def test_candidate_pool_keeps_out_of_province_sample(dataset) -> None:
+    """外省普通院校的抽样名额也不能被截断吃掉（否则池子只剩 985/211，不符合真实分布）。"""
+    import json
+
+    colleges = {c["id"]: c for c in dataset.colleges}
+    tiers = {"985", "211", "双一流"}
+    for province in PROVINCE_PROFILES:
+        ids = {u["college_id"] for u in dataset.admission_units if u["province"] == province}
+        weak = [
+            i
+            for i in ids
+            if colleges[i]["province"] != province
+            and not (tiers & set(json.loads(colleges[i]["level_tags"])))
+        ]
+        assert weak, f"{province} 候选池里没有外省普通院校（抽样名额被截断吃掉？）"
+
+
 def test_every_row_is_synthetic_with_source(dataset) -> None:
     """合规红线：所有行必须 is_synthetic=1、有 source_url、历史行 verified=0。"""
     for name in dataset._TABLES:

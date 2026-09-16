@@ -73,6 +73,23 @@ def get_rank_table(session: Session, province: str, year: int, track: str = "综
     return build_rank_table(rows, total_candidates=total)
 
 
+def get_rank_source_url(session: Session, province: str, year: int, track: str = "综合") -> str:
+    """一分一段表的来源（位次必须可追溯，AGENTS.md §8.1）。
+
+    统一放在 L2：服务层与 agent 工具层都要用，不能各写一份查询。
+    """
+    row = session.execute(
+        select(db.ScoreRankTable.source_url)
+        .where(
+            db.ScoreRankTable.province == province,
+            db.ScoreRankTable.year == year,
+            db.ScoreRankTable.track == track,
+        )
+        .limit(1)
+    ).scalar_one_or_none()
+    return row or "unknown://score_rank_table"
+
+
 def load_colleges(session: Session) -> dict[str, College]:
     return {
         row.id: College(
@@ -129,6 +146,7 @@ def to_unit(row: db.AdmissionUnitRow, *, year: int, plan_count: int) -> Admissio
         duration=row.duration or 4,
         campus=row.campus,
         remarks=row.remarks,
+        source_url=row.source_url or "",
     )
 
 
@@ -385,13 +403,86 @@ def list_plans(session: Session, student_id: str | None = None) -> list[db.Plan]
     return list(session.execute(stmt).scalars())
 
 
+# ---------------------------------------------------------------------------
+# 对话消息（M5）
+# ---------------------------------------------------------------------------
+def append_chat_message(
+    session: Session,
+    *,
+    message_id: str,
+    session_id: str,
+    role: str,
+    content: str,
+    student_id: str | None = None,
+    tool_calls: list[dict] | None = None,
+    missing_fields: list[str] | None = None,
+    mode: str | None = None,
+    blocked: bool = False,
+    stamp: str | None = None,
+) -> db.ChatMessage:
+    row = db.ChatMessage(
+        id=message_id,
+        session_id=session_id,
+        student_id=student_id,
+        role=role,
+        content=content,
+        tool_calls=json.dumps(tool_calls or [], ensure_ascii=False),
+        missing_fields=json.dumps(missing_fields or [], ensure_ascii=False),
+        mode=mode,
+        blocked=blocked,
+        created_at=stamp or now_iso(),
+    )
+    session.add(row)
+    session.flush()
+    return row
+
+
+def list_chat_messages(session: Session, session_id: str) -> list[db.ChatMessage]:
+    return list(
+        session.execute(
+            select(db.ChatMessage)
+            .where(db.ChatMessage.session_id == session_id)
+            .order_by(db.ChatMessage.created_at, db.ChatMessage.id)
+        ).scalars()
+    )
+
+
+def delete_chat_session(session: Session, session_id: str) -> int:
+    """删除整个会话（测试与"清空对话"用）。返回删除条数。"""
+    rows = list_chat_messages(session, session_id)
+    for row in rows:
+        session.delete(row)
+    session.flush()
+    return len(rows)
+
+
+def row_to_chat_message(row: db.ChatMessage) -> dict:
+    """落库行 → 响应体口径（与 ``api/schemas.ChatMessage`` 对齐）。"""
+    return {
+        "id": row.id,
+        "session_id": row.session_id,
+        "student_id": row.student_id,
+        "role": row.role,
+        "content": row.content,
+        "tool_calls": json.loads(row.tool_calls or "[]"),
+        "missing_fields": json.loads(row.missing_fields or "[]"),
+        "mode": row.mode,
+        "blocked": bool(row.blocked),
+        "created_at": row.created_at,
+    }
+
+
 __all__ = [
+    "append_chat_message",
     "build_analog_index",
     "create_student",
+    "delete_chat_session",
     "get_plan",
     "get_province_stats",
+    "get_rank_source_url",
     "get_rank_table",
     "get_student",
+    "list_chat_messages",
     "list_plans",
     "list_students",
     "load_actual_min_rank",
@@ -400,6 +491,7 @@ __all__ = [
     "load_majors",
     "load_units",
     "now_iso",
+    "row_to_chat_message",
     "row_to_student",
     "save_plan",
     "to_record",

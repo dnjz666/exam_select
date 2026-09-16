@@ -129,8 +129,14 @@ def generate(
     plan_id: str | None = None,
     preference_order: list[str] | None = None,
     obey_adjustment: bool | None = None,
+    persist: bool = True,
 ) -> PlanBundle:
-    """生成志愿表并落库（含风险扫描）。"""
+    """生成志愿表（默认落库）。
+
+    ``persist=False`` 用于**只读预览**：agent 的 ``generate_plan`` 工具必须"绝不写库"
+    （AGENTS.md §9.1），但考生需要看到"按我的条件会排成什么样"。预览与落库走**同一条**
+    生成路径，因此两者结果必然一致——不存在"预览好看、落地不一样"。
+    """
     params = params or ModelParams()
     bundle_in = recommend_service.evaluate_candidates(
         session, student_row, criteria=criteria, weights=weights, params=params
@@ -174,7 +180,8 @@ def generate(
         evidence=_plan_evidence(plan, bundle_in.history),
         colleges=_college_index(session, plan),
     )
-    _persist(session, bundle, plan.model_dump(mode="json"))
+    if persist:  # 只读预览（agent 工具）不写库：AGENTS.md §9.1「绝不写库」
+        _persist(session, bundle, plan.model_dump(mode="json"))
     return bundle
 
 

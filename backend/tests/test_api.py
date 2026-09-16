@@ -22,7 +22,6 @@ from fastapi.testclient import TestClient
 from app.core.rules import PROVINCES
 from app.db.session import SessionLocal
 from app.main import app
-from app.services import chat_service
 
 API = "/api/v1"
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -587,39 +586,107 @@ def test_risk_scan(client: TestClient, student_id: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 对话（SSE）
+# 对话（SSE + agent）
 # ---------------------------------------------------------------------------
+def _sse_frames(text: str) -> list[tuple[str, dict]]:
+    frames: list[tuple[str, dict]] = []
+    for frame in text.split("\n\n"):
+        if not frame.startswith("event: "):
+            continue
+        event, _, data = frame.partition("\ndata: ")
+        frames.append((event[len("event: ") :], json.loads(data)))
+    return frames
+
+
 def test_chat_stream_and_history(client: TestClient) -> None:
-    chat_service.reset()
+    """M5 起 /chat 是**能查数据的助手**：走工具 + 护栏，且数字可回溯。
+
+    相比 M3 的"回复中不得出现任何数字"，这里的不变量更强也更正确：
+    **出现的数字必须能在本轮工具返回值里找到**（或来自考生自己提供的事实）。
+    """
     session_id = f"chat-{uuid.uuid4().hex[:8]}"
     response = client.post(
-        f"{API}/chat", json={"message": "帮我看看志愿", "session_id": session_id, "student_id": "none"}
+        f"{API}/chat", json={"message": "你好", "session_id": session_id, "student_id": None}
     )
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/event-stream")
-    text = response.text
-    assert "event: start" in text and "event: delta" in text and "event: done" in text
+    frames = _sse_frames(response.text)
+    events = [event for event, _ in frames]
+    assert events[:2] == ["start", "delta"]
+    assert events[-1] == "done"
 
-    # 只检查正文（delta 拼接），避免把 session_id 里的数字当成模型输出
-    deltas: list[str] = []
-    for frame in text.split("\n\n"):
-        if frame.startswith("event: delta"):
-            payload = json.loads(frame.split("data: ", 1)[1])
-            deltas.append(payload["text"])
-    content = "".join(deltas)
-    assert "以各省考试院官方文件与招生章程为准" in content  # 首次回复含免责声明（§12）
-    # §0/§3.3：不得出现分数线/位次/录取率这类数字断言（"3+3"这类说明性文字不算）
-    assert not re.search(r"\d{3,}", content), f"回复中不得出现三位以上数字：{content}"
-    assert "%" not in content, f"回复中不得出现百分比：{content}"
-    assert "宁可不答，不可编造" in content
+    first = frames[-1][1]
+    assert "以各省考试院官方文件与招生章程为准" in first["content"]  # 首次回复含免责声明（§12）
+    assert first["mode"] == "deterministic"
+    assert first["blocked"] is False
+    assert [call["name"] for call in first["tool_calls"]] == ["list_missing_fields"]
+    assert first["missing_fields"], "没有档案时必须给出追问字段"
 
+    # 对话式建档：考生说出自己的情况 → 回执里出现的分数必须**正是他给的那个**
+    second = _sse_frames(
+        client.post(
+            f"{API}/chat",
+            json={
+                "message": "我是浙江考生，选了物理化学生物，考了640分",
+                "session_id": session_id,
+                "student_id": None,
+            },
+        ).text
+    )[-1][1]
+    assert "640" in second["content"]
+    assert second["applied_fields"]["province"] == "zhejiang"
+    assert second["applied_fields"]["subjects"] == ["物理", "化学", "生物"]
+    student_id = second["student_id"]
+    assert student_id and student_id.startswith("stu-"), "对话式建档应产出档案 id 供前端续用"
+
+    # 规则类问题：出现的 80 必须来自工具返回值（而不是模型凭印象）
+    third = _sse_frames(
+        client.post(
+            f"{API}/chat",
+            json={
+                "message": "浙江最多能填几个志愿？",
+                "session_id": session_id,
+                "student_id": student_id,
+            },
+        ).text
+    )[-1][1]
+    assert [call["name"] for call in third["tool_calls"]] == ["get_province_rule"]
+    assert "80" in third["content"]
+    assert third["tool_calls"][0]["result"]["data"]["main_batch"]["max_volunteers"] == 80
+
+    # 会话历史落库（重启不丢），并带上工具调用记录
     history = client.get(f"{API}/chat/{session_id}/history").json()
     messages = history["data"]["messages"]
-    assert [message["role"] for message in messages] == ["user", "assistant"]
-    assert messages[1]["missing_fields"], "缺档案时必须给出追问字段"
+    assert [message["role"] for message in messages] == ["user", "assistant"] * 3
+    assistant = [message for message in messages if message["role"] == "assistant"]
+    assert assistant[-1]["tool_calls"], "工具调用必须落库，便于回溯'数字从哪来'"
+    assert assistant[0]["missing_fields"]
+    assert assistant[-1]["mode"] == "deterministic"
 
     empty = client.get(f"{API}/chat/chat-unknown/history").json()
     assert empty["data"]["count"] == 0 and empty["warnings"]
+
+
+def test_chat_guard_blocks_a_fabricating_model(monkeypatch) -> None:
+    """端到端护栏：模型试图编造分数线时，考生看到的是安全回复而不是那个数字。"""
+    from app.agent.llm import LLMResponse
+    from app.services import chat_service
+
+    class _Fabricating:
+        name = "fabricating"
+
+        def complete(self, messages, tools=None):  # noqa: ANN001, ANN201
+            return LLMResponse(content="浙江大学去年录取线 660 分，你可以冲一冲。", tool_calls=[])
+
+    monkeypatch.setattr(chat_service, "get_llm_client", lambda settings=None: _Fabricating())
+    client = TestClient(app)
+    frames = _sse_frames(
+        client.post(f"{API}/chat", json={"message": "浙江大学多少分？", "session_id": None}).text
+    )
+    done = frames[-1][1]
+    assert done["blocked"] is True
+    assert "660" not in done["content"]
+    assert "UNSUPPORTED_NUMBER" in " ".join(done["warnings"])
 
 
 # ---------------------------------------------------------------------------

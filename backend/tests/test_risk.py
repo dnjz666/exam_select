@@ -84,8 +84,9 @@ def test_clean_parallel_plan_has_no_high_risks() -> None:
         for index, (unit, _) in enumerate(units)
     ]
     # 真保底：该单位近三年最难年份的切线也要比考生位次靠后 ≥ safety_margin
-    # （考生 20000 × 1.25 = 25000 → 历史位次取 30000 档）
-    histories = {key: make_history(key, {2025: 30000, 2024: 31000, 2023: 30500}) for _, key in units}
+    # （默认 safety_margin=0.60，见 DECISIONS ADR-014：考生 20000 × 1.60 = 32000 →
+    #  历史位次取 36000 档，留出 80% 余量；min_sigma_rel 等参数改动不影响本用例）
+    histories = {key: make_history(key, {2025: 36000, 2024: 37000, 2023: 36500}) for _, key in units}
     risks = scan_risks(
         _plan(ZJ, batch, items),
         student=student,

@@ -221,3 +221,37 @@ class Plan(Base):
     updated_at: Mapped[str] = mapped_column(String(32), nullable=False)
     source_url: Mapped[str] = mapped_column(String(512), nullable=False, default="generated://planner")
     is_synthetic: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+# ====================================================================
+# M5 新增：对话消息（ADR-013）
+# 与 students/plans 同理：这是**用户产生的数据**，source_url 记录来源口径
+# （agent://chat = 由 agent 层产生），is_synthetic 沿用模拟数据标记。
+# ====================================================================
+
+
+class ChatMessage(Base):
+    """一条会话消息。
+
+    为什么要**落库**而不是留在进程内存（M3 的做法）：会话历史是考生回看"我当时问了什么、
+    系统依据什么这么答"的唯一凭据；进程重启就清空，等于把证据链丢了。
+    ``tool_calls`` 特别重要——它是"这句话里的数字是从哪查出来的"的直接证据。
+    """
+
+    __tablename__ = "chat_messages"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    session_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    student_id: Mapped[str | None] = mapped_column(String(64))
+    role: Mapped[str] = mapped_column(String(16), nullable=False)  # user | assistant
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    #: 本轮调用的工具名 + 参数 + 返回值（JSON）——护栏的判据，也是给考生看的"查了什么"
+    tool_calls: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    missing_fields: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    #: deterministic | llm | deterministic-fallback
+    mode: Mapped[str | None] = mapped_column(String(32))
+    #: 是否被护栏拦截过（拦截说明模型试图编造，值得留痕以便复盘）
+    blocked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_url: Mapped[str] = mapped_column(String(512), nullable=False, default="agent://chat")
+    is_synthetic: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

@@ -91,7 +91,7 @@
 1. **位次 > 分数**。跨年比较一律用位次，不用分数。分数只用于展示。
 2. **考生人数会变**。今年考生比去年多 5%，同样的位次含金量就下降。必须做位次归一化。
 3. **大小年必防**。某校某年异常低分，次年大概率反弹。绝不使用单年数据下结论。
-4. **保底要"真保底"**。**考生位次必须比该单位近三年最难年份的切线还靠前 ≥ 30%**（`safety_margin`，
+4. **保底要"真保底"**。**考生位次必须比该单位近三年最难年份的切线还靠前 ≥ 60%**（`safety_margin`，
    经 M2 回测标定），且计划数不能太小。⚠️ 原表述"单位位次优于考生位次"方向写反（那等于单位更难=不安全），
    已勘误，见 `docs/DECISIONS.md` ADR-009 勘误 2。
 5. **计划数是强信号**。计划大幅增加 → 门槛下降；大幅减少 → 门槛上升。这是修正项，不是噪音。
@@ -240,12 +240,13 @@ exam_select/
 │   │   │   ├── synthetic.py       # ★ 确定性模拟数据生成器（seed 固定）
 │   │   │   ├── validate.py        # 数据质量校验
 │   │   │   └── loaders/           # M6 真实数据适配器（先留接口）
-│   │   ├── agent/
-│   │   │   ├── tools.py           # ★ LLM 工具定义（严格 schema）
-│   │   │   ├── prompts.py         # System Prompt（含防幻觉条款）
-│   │   │   ├── parser.py          # 自然语言 → 考生档案
-│   │   │   ├── narrator.py        # 结果 → 名师口吻解释
-│   │   │   └── guard.py           # ★ 输出校验器（幻觉拦截）
+│   │   ├── agent/                 # L5 agent 层（M5）
+│   │   │   ├── tools.py           # ★ 工具定义（严格 schema，只读/绝不写库，数字全带来源）
+│   │   │   ├── prompts.py         # System Prompt（含防幻觉条款与正反例）
+│   │   │   ├── parser.py          # 自然语言 → 考生档案 + 确定性意图路由
+│   │   │   ├── narrator.py        # 工具返回值 → 名师口吻解释（数字原样引用）
+│   │   │   ├── guard.py           # ★ 输出校验器（幻觉拦截）
+│   │   │   └── llm.py             # provider 可插拔的 LLM 客户端（可替换 / 可 mock / 可缺席）
 │   │   └── services/              # 编排：查数据 → 调 core → 存结果
 │   │       ├── meta_service.py
 │   │       ├── student_service.py
@@ -657,7 +658,7 @@ if cv > CV_THRESHOLD:            # 默认 0.15
 它也不是保底（回测中曾出现"考生 2,204 vs 实际 2,197"这类擦边失效）。
 
 ```
-min(近三年归一化最低位次) ≥ 考生位次 × (1 + safety_margin)   # safety_margin 默认 0.30
+min(近三年归一化最低位次) ≥ 考生位次 × (1 + safety_margin)   # safety_margin 默认 0.60（M5 重标定，ADR-014）
 ```
 - 不满足 → **降级**（`DIAN`/`BAO` → `WEN`），并打 `SAFETY_MARGIN_NOT_MET`，原始概率在 `reasons` 中如实披露；
 - **无本单位历史**（Step 0 类比路径）**一律不得判为 BAO/DIAN**——无历史的数据不能当垫底；
@@ -836,7 +837,7 @@ class VolunteerPlan(BaseModel):
 | code | level | 触发条件 | 建议 |
 |---|---|---|---|
 | `NO_SAFETY_NET` | HIGH | 垫底志愿 < 最少要求 | 增加绝对保底志愿 |
-| `SAFETY_NOT_SAFE` | HIGH | 垫底志愿近三年**最难年份**的切线未比考生位次靠后 ≥ 30%（`safety_margin`） | 更换更稳的保底 |
+| `SAFETY_NOT_SAFE` | HIGH | 垫底志愿近三年**最难年份**的切线未比考生位次靠后 ≥ 60%（`safety_margin`） | 更换更稳的保底 |
 | `GRADIENT_INVERSION` | MEDIUM | 后序志愿比前序志愿层次显著更高且更稳 | 提示顺序可能非最优 |
 | `INSUFFICIENT_COUNT` | MEDIUM | 填报数 < 省份上限的 80% | 建议填满，浪费机会 |
 | `PLAN_TOO_SMALL` | MEDIUM | 任一志愿计划数 < 5 | 波动大，建议增加替代 |
@@ -1008,6 +1009,9 @@ scan_risks(plan_id) -> [Risk]
 get_college_profile(college_id) -> {...}
 get_major_profile(major_id) -> {...}
 list_missing_fields(student_id) -> [str]
+get_province_rule(province) -> {main_batch, subject_pool, requires_banner, source_quote}
+    # ★ M5 增补的第 12 个工具：考生最常问的恰恰是"我这省能填几个志愿、有没有调剂"。
+    #   没有它，模型只能凭常识答——那正是本项目最不能接受的行为。
 ```
 
 **每个工具返回的所有数字必须带 `source_url`。** 工具负责格式化证据，LLM 只负责转述。

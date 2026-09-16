@@ -22,7 +22,8 @@
 | M2 | 核心算法引擎 | ✅ 完成 |
 | M3 | 后端 API | ✅ 完成 |
 | M4 | 前端（5 个页面 + 端到端闭环） | ✅ 完成 |
-| M5 | Agent 层与防幻觉 | ⬜ **下一轮** |
+| M5 | Agent 层与防幻觉（12 个工具 + 护栏 + 对话式建档） | ✅ 完成 |
+| M6 | 真实数据接入 | ⬜ **下一轮**（范围另议，需确认数据来源授权） |
 | M6 | 真实数据接入 | ⬜（范围另议，需确认数据来源授权） |
 | M7 | 加固与交付 | ⬜ |
 
@@ -30,14 +31,15 @@
 
 | 项 | 实测 |
 |---|---|
-| 后端测试 | `201 passed`（其中 API 集成测试 25 项） |
-| 算法层覆盖率（`app.core`） | **95.62%**（门槛 ≥90%） |
+| 后端测试 | `319 passed`（含 agent 层 101 项：护栏/工具/解析/幻觉） |
+| 算法层覆盖率（`app.core`） | **95.81%**（门槛 ≥90%） |
 | 黄金用例 | **38 条**（概率 21 / 过滤 12 / 规则 5） |
-| 回测（浙江 2025，811 单位 × 150 考生 × 21,184 样本） | 保底失效率 **0.00%** · 稳档命中率 **86.02%** · 冲档命中率 **31.43%** · Brier **0.0057**（四项全达标） |
+| 回测（浙江 2025，**1290** 单位 × 150 考生 × 21,134 样本） | 保底失效率 **0.00%** · 稳档 **88.10%** · 冲档 **29.79%** · Brier **0.0089**（四项达标；山东 90.54%/北京 86.08% 同样四项达标） |
 | API | `/api/v1` 下 **21 条路由**，OpenAPI 3.1.0 可解析（**69 个 schema，全部强类型**） |
 | 前端构建 | `vite build` ✓ 610 modules；`tsc --noEmit` 零错误；vitest 10 项通过 |
 | 前端端到端 | `npm run smoke` 闭环全通（建档 → 换算 → 推荐 → 志愿表 → 手改 → 导出 PDF/XLSX） |
-| 模拟数据 | 6 省市 · 418 院校 · 528 专业 · 4,645 投档单位 · 16,297 条历史 · 23,225 条计划快照（全部 `is_synthetic=1`） |
+| 幻觉测试 | 20 例库外院校提问 × 2 条防线（确定性路径 + 故意编造的假模型），**编造次数 = 0** |
+| 模拟数据 | 6 省市 · 418 院校 · 528 专业 · **7,091** 投档单位 · 24,921 条历史 · 35,455 条计划快照（全部 `is_synthetic=1`） |
 
 ---
 
@@ -107,6 +109,12 @@ backend\.venv\Scripts\python.exe -m pytest backend/tests/test_api.py -q
 
 # M2 验收：回测（四项硬指标未达标则 exit 1）
 backend\.venv\Scripts\python.exe scripts\run_backtest.py --province zhejiang --year 2025
+
+# M5 验收：幻觉测试（20 例库外院校提问，编造次数必须 = 0）
+backend\.venv\Scripts\python.exe -m pytest backend/tests/test_agent_hallucination.py -q
+
+# 参数标定（改了概率模型参数后必须重跑并附前后对比，§3.1 纪律）
+backend\.venv\Scripts\python.exe scripts\calibrate_params.py --province zhejiang --year 2025
 ```
 
 > `pytest backend/tests` 依赖**已播种**的数据库；未播种时会明确失败并提示 `scripts/seed.py --reset`
@@ -141,7 +149,23 @@ pnpm smoke                       # 端到端闭环冒烟（打真后端，断言
 > 都能联网 —— 排错时别误判成"断网"。
 
 **5 个页面**：`/profile` 建档向导（首屏）· `/recommend` 推荐列表 · `/plan` 志愿表 ·
-`/report` 可打印报告 · `/chat` 对话（M3 通道，能力边界如实标注）。
+`/report` 可打印报告 · `/chat` 对话（M5：能查数据、能建档，且编不出来）。
+
+### 5. 对话（Agent 层，可选配置 LLM）
+
+```powershell
+# 默认 LLM_PROVIDER=none：/chat 走确定性路径（规则路由 + 工具 + 护栏），零编造、可单测。
+# 想接真实模型时（OpenAI 兼容接口，DeepSeek/Qwen/vLLM 同理）在 .env 里配：
+#   LLM_PROVIDER=openai
+#   LLM_BASE_URL=https://api.openai.com/v1
+#   LLM_API_KEY=sk-...
+#   LLM_MODEL=gpt-4o-mini
+# 缺 provider 或 key 任一项都会自动退回确定性路径（并在回复里如实说明）。
+```
+
+> 无论走哪条路径，回复都要过**幻觉护栏**：出现的每个分数/位次/百分比都必须能在
+> 本次会话的工具返回值里找到，否则整条回复被改写为"我需要先查一下数据"。
+> 被拦截的回复会在界面上标出，并可展开查看"这句话查了哪个工具"。
 
 ---
 
@@ -201,7 +225,7 @@ $scan = Invoke-RestMethod -Method Post -Uri "$api/risk/scan" -ContentType $json 
 
 ---
 
-## API 一览（`/api/v1`，21 条路由）
+## API 一览（`/api/v1`，21 条路由 + `/health`）
 
 | 分组 | 端点 | 说明 |
 |---|---|---|
@@ -219,7 +243,7 @@ $scan = Invoke-RestMethod -Method Post -Uri "$api/risk/scan" -ContentType $json 
 | | `GET /plans/{id}` · `PATCH /plans/{id}/items` · `POST /plans/{id}/validate` | 读取 / 手改（**生成时候选池内**，移除可逆）/ 重跑校验 |
 | | `GET /plans/{id}/export?format=pdf\|xlsx` | 导出报告（免责声明 + 来源清单） |
 | 风险速查 | `POST /risk/scan` | 对一组 `unit_id` 直接扫风险（§6.8 全码 + 可执行建议） |
-| 对话 | `POST /chat`（SSE）· `GET /chat/{session_id}/history` | M3 仅合规通道：**回复不含数字**、首次回复带免责声明；工具化回答见 M5 |
+| 对话 | `POST /chat`（SSE）· `GET /chat/{session_id}/history` | **M5 起能查数据**：工具调用 + 幻觉护栏 + 对话式建档；`done` 帧带 `tool_calls`（数字从哪查来的）与 `student_id`（建档回流） |
 | 回测 | `GET /backtest/report?province=&year=` | 读取离线回测报告（不匹配 → 404 + 复现命令） |
 | 健康 | `GET /health` | `{"status":"ok"}` |
 
@@ -249,9 +273,10 @@ exam_select/
 │   │   ├── api/               # L4：schemas(信封) + deps + v1/{meta,students,catalog,recommend,plans,risk,chat,backtest}
 │   │   ├── db/                # L2：models(表) + repositories(访问层，供 L4 调用)
 │   │   ├── etl/               # 确定性模拟数据生成器 + 数据质量校验
+│   │   ├── agent/             # L5 agent：tools(12 个只读工具) · prompts · parser · narrator · guard · llm
 │   │   ├── services/          # L4 编排：查库 → 组装 → 调 core → 存结果
 │   │   └── main.py            # 入口（/health + /api/v1 装配 + 领域异常映射）
-│   └── tests/                 # 201 项测试 + golden/（38 条黄金用例）
+│   └── tests/                 # 319 项测试 + golden/（38 条黄金用例）
 ├── frontend/                  # L5：React 18 + TS + Vite + Tailwind + ECharts（独立工程）
 │   ├── src/pages/             # Profile(首屏向导) / Recommend / PlanBoard / Report / Chat
 │   ├── src/components/        # TierBadge · ProbabilityBar · RankTrendChart · PlanRow · RiskPanel · …
@@ -273,8 +298,12 @@ exam_select/
 - **省际边界**：冲档/稳档指标在个别省份正好压在阈值上（山东冲档 41.2%、北京稳档 83.9%）。
   模型各层校准良好（预测均值 ≈ 实际命中率），阈值恰好落在 §6.3 分层边界，建议按跨省容差读；
   **不建议为凑指标继续调参**（会滑向对测试集过拟合）。详见 `docs/DECISIONS.md` ADR-009。
-- **`/chat` 不是可用助手**：M3 只交付 SSE 通道、内存会话历史与防幻觉底线；
-  工具调用 / System Prompt / guard 输出校验器属 M5，会话历史届时落库（重启即清空）。
+- **`/chat` 能查数据了**（M5）：走 agent 层（12 个只读工具 + 幻觉护栏 + 对话式建档）。
+  **每个数字都必须能在工具返回值里找到**；模型自己编的部分会被护栏拦掉并改写成
+  "我需要先查一下数据"。界面会标出被拦截的回复，并可展开查看"这句话查了哪个工具"。
+  未配置 LLM（`LLM_PROVIDER=none`，默认）时走**确定性路径**：同样零编造，且完全可单测。
+- **真实 LLM 客户端未对真实服务验证过**（本机无 API key）：`llm.py` 的 OpenAI 兼容实现
+  由注入的假实现覆盖测试（含"编造必被拦"与"合规必放行"两个方向）。
 - **志愿表手改限"生成时的候选池"**（由同一套评估现场重算，硬约束一条都绕不过；
   池外 `unit_id` → 422）。因此**移除是可逆的**，但候选池 ≠ 全部单位：
   被硬约束剔除或概率 <10% 的单位仍需调整筛选后重新生成。

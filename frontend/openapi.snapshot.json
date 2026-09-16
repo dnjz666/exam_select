@@ -889,7 +889,7 @@
         "tags": [
           "chat"
         ],
-        "summary": "对话（SSE 流式）",
+        "summary": "对话（SSE 流式，含工具调用与幻觉护栏）",
         "operationId": "chat_api_v1_chat_post",
         "requestBody": {
           "content": {
@@ -1188,6 +1188,11 @@
               }
             ],
             "title": "Remarks"
+          },
+          "source_url": {
+            "type": "string",
+            "title": "Source Url",
+            "default": ""
           },
           "gender_limit": {
             "anyOf": [
@@ -1491,7 +1496,15 @@
             "type": "array",
             "title": "Missing Fields"
           },
-          "note": {
+          "tool_calls": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Tool Calls"
+          },
+          "mode": {
             "anyOf": [
               {
                 "type": "string"
@@ -1500,7 +1513,12 @@
                 "type": "null"
               }
             ],
-            "title": "Note"
+            "title": "Mode"
+          },
+          "blocked": {
+            "type": "boolean",
+            "title": "Blocked",
+            "default": false
           }
         },
         "type": "object",
@@ -1511,7 +1529,7 @@
           "content"
         ],
         "title": "ChatMessage",
-        "description": "一条会话消息（M3 存内存；``missing_fields`` / ``note`` 仅 assistant 侧出现）。"
+        "description": "一条会话消息（M5 起落库；``tool_calls`` 是\"数字从哪来\"的直接证据）。"
       },
       "ChatRequest": {
         "properties": {

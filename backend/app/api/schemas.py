@@ -493,7 +493,7 @@ class RiskScanPayload(BaseModel):
 
 
 class ChatMessage(BaseModel):
-    """一条会话消息（M3 存内存；``missing_fields`` / ``note`` 仅 assistant 侧出现）。"""
+    """一条会话消息（M5 起落库；``tool_calls`` 是"数字从哪来"的直接证据）。"""
 
     id: str
     session_id: str
@@ -502,7 +502,12 @@ class ChatMessage(BaseModel):
     created_at: str | None = None
     student_id: str | None = None
     missing_fields: list[str] = Field(default_factory=list)
-    note: str | None = None
+    #: 本轮调用的工具（name / arguments / result）——护栏判据，也供前端展示"查了什么"
+    tool_calls: list[dict] = Field(default_factory=list)
+    #: deterministic | llm | deterministic-fallback
+    mode: str | None = None
+    #: 是否被护栏拦截过（拦截 = 模型曾试图编造，留痕便于复盘）
+    blocked: bool = False
 
 
 class ChatHistoryPayload(BaseModel):

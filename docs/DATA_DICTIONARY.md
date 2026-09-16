@@ -234,7 +234,24 @@
 > 逐项**证据链不落库**：导出/读取时由 `admission_history` 重算（证据是派生数据，
 > 存副本会与历史脱节）。见 `plan_service._plan_evidence`。
 
-### 7.3 API 口径
+### 7.3 M5 新增：`chat_messages` —— 会话消息（ADR-013）
+
+| 字段 | 口径 |
+|---|---|
+| `id` | `msg-<纳秒>-<随机后缀>`，**按字典序 = 按时间序**（纯 uuid 会让同一秒内的消息顺序错乱） |
+| `session_id` | 会话标识；前端未提供时后端生成 `chat-<uuid12>` |
+| `role` | `user` \| `assistant` |
+| `content` | 消息正文（首次回复会前置免责声明，§12） |
+| `tool_calls` | 本轮调用的工具 `[{name, arguments, result}]`（JSON）——**"数字从哪来"的直接证据**，也是护栏判据 |
+| `missing_fields` | 该轮结束时档案仍缺的字段（JSON list） |
+| `mode` | `deterministic` \| `llm` \| `deterministic-fallback`（LLM 不可用时退回规则路径） |
+| `blocked` | 是否被幻觉护栏拦截过（拦截 = 模型曾试图编造，留痕便于复盘） |
+| `source_url` | 固定 `agent://chat`（本表是会话数据，不是外部数据源） |
+
+> 会话历史**落库**而非存内存：它是"我当时问了什么、系统依据什么这么答"的唯一凭据，
+> 进程重启就清空等于把证据链丢了。
+
+### 7.4 API 口径
 
 | 项 | 口径 |
 |---|---|
@@ -244,6 +261,7 @@
 | 概率区间 | `probability_interval` 按 ±1σ 给出（UI 强制显示区间，§8） |
 | `plans` 手改 | PATCH 只接受**生成时候选池内**的 `unit_id`；池外 → 422 `UNKNOWN_UNITS` |
 | `export` | `format=pdf`（reportlab，内置 STSong-Light 中文，无需字体文件）或 `xlsx`（openpyxl，四张表）；均含免责声明与来源清单 |
-| `/chat` | M3 仅 SSE 通道 + 内存会话历史 + 防幻觉底线（回复**不含数字**、首次回复带免责声明）；工具化回答见 M5 |
+| `/chat` | M5 起是**能查数据的助手**：SSE 帧为 `start` → `delta` → `done`；`done` 里带 `content / tool_calls / mode / blocked / warnings / missing_fields / student_id`。**先算完再流式**：agent 走完工具与护栏才切帧，保证未过护栏的内容不会被吐出去 |
+| `/chat` 建档回流 | `done.student_id` 是本轮结束时的档案 id；**前端必须据此更新自己的 studentId**，否则下一条消息会被当成"还没有档案"而重复建档 |
 | dev 建表 | `APP_ENVIRONMENT=dev` 时启动 `create_all`；生产不自动建表（M7 alembic） |
 | 测试前置 | `pytest backend/tests` 需要已播种数据库；未播种时**明确失败**并提示 `scripts/seed.py --reset`（不静默跳过） |

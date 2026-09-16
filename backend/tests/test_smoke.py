@@ -34,5 +34,6 @@ def test_model_params_defaults_come_from_domain_rules() -> None:
     assert p.plan_beta == 0.4
     assert p.tier_bounds["WEN"] == (0.40, 0.75)
     assert p.quota == {"CHONG": 0.25, "WEN": 0.40, "BAO": 0.25, "DIAN": 0.10}
-    # safety_margin 于 M2 经回测标定：0.15 → 0.30（DOMAIN_RULES §3.1 纪律，见 DECISIONS ADR-009）
-    assert p.safety_margin == 0.30
+    # safety_margin 经回测标定：0.15 → 0.30（M2）→ 0.60（M5 修正 M1 数据缺陷后重标定）
+    # DOMAIN_RULES §3.1 纪律：任何参数改动必须重跑回测并附前后对比，见 DECISIONS ADR-014
+    assert p.safety_margin == 0.60

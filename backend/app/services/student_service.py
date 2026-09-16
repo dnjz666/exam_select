@@ -201,18 +201,7 @@ def resolve_rank(session: Session, row: db.Student) -> dict:
 
 
 def _rank_source_url(session: Session, province: str, year: int, track: str) -> str:
-    from sqlalchemy import select
-
-    row = session.execute(
-        select(db.ScoreRankTable.source_url)
-        .where(
-            db.ScoreRankTable.province == province,
-            db.ScoreRankTable.year == year,
-            db.ScoreRankTable.track == track,
-        )
-        .limit(1)
-    ).scalar_one_or_none()
-    return row or "unknown://score_rank_table"
+    return repo.get_rank_source_url(session, province, year, track)
 
 
 def ensure_rank(session: Session, row: db.Student) -> StudentProfile:

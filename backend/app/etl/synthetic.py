@@ -78,7 +78,12 @@ TRUE_PLAN_ELASTICITY = 0.35
 #: 真实趋势幅度（逐年）：变热 ×0.965 / 变冷 ×1.035
 TRUE_TREND_STEP = 0.035
 
-MAX_COLLEGES_PER_PROVINCE = 110
+#: 每个省的候选院校池上限。
+#: ⚠️ 必须**大于** ``max(本省院校 + 全国重点院校) + OUT_OF_PROVINCE_SAMPLE``，
+#: 否则截断会悄悄吃掉某一类院校。实测：各省 local+strong 最多 169（浙江/山东，
+#: 2026-02 修正后），取 200 可容纳"全部本省 + 全部 985/211/双一流 + 14 所外省普通院校"。
+#: 这个常量配小了就会重新引入"M5 实测缺陷"（见 ``_candidate_colleges``）。
+MAX_COLLEGES_PER_PROVINCE = 200
 OUT_OF_PROVINCE_SAMPLE = 14
 
 
@@ -339,21 +344,39 @@ def _generate_score_tables() -> tuple[list[dict], list[dict], dict[tuple[str, in
 # 生成：投档单位 / 计划 / 历史（含地面真值）
 # ---------------------------------------------------------------------------
 def _candidate_colleges(province: str, college_index: dict[str, dict], rng: random.Random) -> list[dict]:
-    local = [c for c in college_index.values() if c["province"] == province]
-    strong = [
-        c
-        for c in college_index.values()
-        if c["province"] != province and c["_tier"] in ("985", "211", "SY")
-    ]
-    weak = [
-        c
-        for c in college_index.values()
-        if c["province"] != province and c["_tier"] in ("PROV", "PRIV")
-    ]
+    """某省考生的候选院校池。
+
+    ⚠️ **M5 实测缺陷修复**：原实现把 ``local + strong + sampled`` 合并后**按 id 排序再截断**
+    ``[:MAX_COLLEGES_PER_PROVINCE]``。院校 id 形如 ``{省}-{代码}``，按 id 排序等于按省名排序，
+    于是截断后剩下的几乎全是排在前面那几个省的院校——**排在后半段的省份，本省院校被整段丢掉**。
+    实测：浙江/上海/山东/天津的考生，候选池里**本省院校数为 0**（浙江考生永远看不到浙江大学），
+    而北京 286、海南 57。这既让推荐结果失真，也让回测样本偏离真实分布。
+
+    正确语义：**本省院校与全国性重点院校都保留**，再用外省普通院校补足少量名额，
+    并且**不让上限去截断任何一类**（``MAX_COLLEGES_PER_PROVINCE`` 配小了就会重犯此错）。
+    """
+    local = sorted(
+        {c["id"]: c for c in college_index.values() if c["province"] == province}.values(),
+        key=lambda c: c["id"],
+    )
+    strong = sorted(
+        {
+            c["id"]: c
+            for c in college_index.values()
+            if c["province"] != province and c["_tier"] in ("985", "211", "SY")
+        }.values(),
+        key=lambda c: c["id"],
+    )
+    weak = [c for c in college_index.values() if c["province"] != province and c["_tier"] in ("PROV", "PRIV")]
     weak.sort(key=lambda c: c["id"])
-    sampled = rng.sample(weak, min(OUT_OF_PROVINCE_SAMPLE, len(weak)))
-    chosen = sorted({c["id"]: c for c in (local + strong + sampled)}.values(), key=lambda c: c["id"])
-    return chosen[:MAX_COLLEGES_PER_PROVINCE]
+
+    # 1) 本省 + 全国重点：必留（上限足够大，正常不会截断；真截断时先牺牲外省重点）
+    core = (local + strong)[:MAX_COLLEGES_PER_PROVINCE]
+    # 2) 余下名额用外省普通院校随机补足（固定 seed → 确定性）；至少要留出 weak 的份额
+    room = max(0, MAX_COLLEGES_PER_PROVINCE - len(core))
+    sampled = rng.sample(weak, min(OUT_OF_PROVINCE_SAMPLE, len(weak), room))
+    chosen = {c["id"]: c for c in (*core, *sampled)}
+    return sorted(chosen.values(), key=lambda c: c["id"])
 
 
 def _pick_tuition(tier: str, category: str, rng: random.Random) -> int:

@@ -1,8 +1,12 @@
 """对话端点（AGENTS.md §7 ``POST /chat`` SSE + ``GET /chat/{session_id}/history``）。
 
-⚠️ **M3 范围**：交付可用的 SSE 通道与会话历史；LLM 工具调用 / System Prompt /
-输出护栏（guard）属于 **M5**（§9）。当前回复**不含任何数字**（§0 最高原则），
-首次回复含免责声明（§12）。
+M5 起 ``/chat`` 是**真能查数据的助手**：走 ``services.chat_service`` 的 agent 编排
+（工具调用 + 护栏），响应里带 ``tool_calls``，说明"这句话里的数字从哪查出来的"。
+
+两个实现细节值得注意：
+- **先算完再流式**：``respond()`` 在路由内同步跑完（含落库），``sse_frames()`` 只负责切帧。
+  这样数据库会话的生命周期与请求严格对齐，也保证"没过护栏的内容绝不会被吐出去"。
+- 会话历史**落库**（``chat_messages`` 表），重启不清空。
 """
 
 from __future__ import annotations
@@ -26,14 +30,13 @@ SSE_HEADERS = {
 }
 
 
-@router.post("/chat", summary="对话（SSE 流式）")
+@router.post("/chat", summary="对话（SSE 流式，含工具调用与幻觉护栏）")
 def chat(payload: ChatRequest, session: DbDep) -> StreamingResponse:
     session_id = payload.session_id or f"chat-{uuid.uuid4().hex[:12]}"
-    generator: Iterator[str] = chat_service.stream(
-        session, session_id, payload.message, payload.student_id
-    )
+    reply = chat_service.respond(session, session_id, payload.message, payload.student_id)
+    frames: Iterator[str] = chat_service.sse_frames(reply, session_id)
     return StreamingResponse(
-        generator, media_type="text/event-stream", headers={**SSE_HEADERS, "X-Session-Id": session_id}
+        frames, media_type="text/event-stream", headers={**SSE_HEADERS, "X-Session-Id": session_id}
     )
 
 
@@ -42,11 +45,11 @@ def chat(payload: ChatRequest, session: DbDep) -> StreamingResponse:
     response_model=Envelope[ChatHistoryPayload],
     summary="对话历史",
 )
-def chat_history(session_id: str) -> Envelope[dict]:
-    messages = chat_service.history(session_id)
+def chat_history(session_id: str, session: DbDep) -> Envelope[dict]:
+    messages = chat_service.history(session, session_id)
     warnings: list[str] = []
     if not messages:
-        warnings.append("该会话没有历史消息（M3 的会话历史存内存，重启后清空；M5 落库）。")
+        warnings.append("该会话没有历史消息（换个 session_id，或先发一条消息）。")
     return Envelope[dict](
         data={"session_id": session_id, "messages": messages, "count": len(messages)},
         evidence=[],
