@@ -26,6 +26,7 @@ from app.core.probability import AnalogUnit
 from app.core.rank import RankTable, build_rank_table, rank_to_score
 from app.core.rules import get_rule
 from app.db import models as db
+from app.db import repositories as repo
 from app.db.session import SessionLocal
 from app.etl.synthetic import CURRENT_YEAR
 
@@ -122,12 +123,7 @@ def load_backtest_context(province: str, year: int) -> BacktestContext:
     batch = rule.main_batch()
 
     with SessionLocal() as session:
-        stats = {
-            row.year: row.total_candidates
-            for row in session.execute(
-                select(db.ProvinceYearStats).where(db.ProvinceYearStats.province == province)
-            ).scalars()
-        }
+        stats = repo.get_province_stats(session, province)
         if year not in stats:
             raise KeyError(f"缺少 {province}/{year} 的 province_year_stats")
 
@@ -137,13 +133,31 @@ def load_backtest_context(province: str, year: int) -> BacktestContext:
         ).scalars():
             plans.setdefault(row.unit_key, {})[row.year] = row.plan_count
 
-        units: list[AdmissionUnit] = []
-        for row in session.execute(
-            select(db.AdmissionUnitRow).where(
-                db.AdmissionUnitRow.province == province,
-                db.AdmissionUnitRow.year == CURRENT_YEAR,
+        # ★ M6（ADR-015）：真实数据的单位**逐年入库**，回测目标年 Y 优先用 Y 年自己的行
+        #   （名称/选考要求/计划数都是那一年的官方口径）；模拟数据只有填报年的行，回落。
+        unit_rows = list(
+            session.execute(
+                select(db.AdmissionUnitRow).where(
+                    db.AdmissionUnitRow.province == province,
+                    db.AdmissionUnitRow.year == year,
+                )
+            ).scalars()
+        )
+        if not unit_rows:
+            unit_rows = list(
+                session.execute(
+                    select(db.AdmissionUnitRow).where(
+                        db.AdmissionUnitRow.province == province,
+                        db.AdmissionUnitRow.year == CURRENT_YEAR,
+                    )
+                ).scalars()
             )
-        ).scalars():
+
+        units: list[AdmissionUnit] = []
+        for row in unit_rows:
+            if row.year == year:
+                units.append(_to_unit(row, year=year, plan_count=row.plan_count))
+                continue
             plan = plans.get(unit_key_of(row.unit_id), {}).get(year)
             if plan:
                 units.append(_to_unit(row, year=year, plan_count=plan))

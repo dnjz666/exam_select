@@ -25,6 +25,11 @@ frontend/src/api/schema.d.ts
 
 # ---------- 数据 ----------
 data/*.db
+# SQLite 回滚日志与临时备份（`sqlite3` 崩溃/被强杀时会留下 journal，M6 实测踩到）
+data/*.db-journal
+data/*.db.bak-*
+data/*.db-wal
+data/*.db-shm
 data/synthetic/*
 !data/synthetic/.gitkeep
 data/raw/*

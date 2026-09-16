@@ -570,6 +570,21 @@ class ModelParams(BaseModel):
     cv_for_high: float = 0.10
     small_plan_warn: int = 5
 
+    # ---- 数据校验：分数↔位次自洽容忍度（M6 / ADR-015）
+    #: 官方分数段表（is_synthetic=0）的容忍度：分数与位次必须严格自洽，±2 分为舍入容差
+    rank_score_gap: int = 2
+    #: **标定估计**的一分一段表（无官方分数段表时由当年投档记录导出，
+    #: is_synthetic=1）的容忍度：反查分数与该专业实际最低分的偏差是估计残差，
+    #: 不是数据错误；超过 ``rank_score_gap`` 即发 WARNING，超过本值才判 ERROR。
+    #: 实测（2026-09，浙江 2023/2024/2025）：最大残差 38 分，99.5% 的记录完全自洽。
+    modeled_score_gap: int = 50
+
+    # ---- Step 8.6 安全闸门：判为"保/垫"所需的最少历史年数（M6 / ADR-015 缺陷 6）
+    #: 只有 1–2 年历史就承诺"这是底线"是不负责任的：真实数据回测里 6 例保底失效**全部**
+    #: 是"历史年份太少、把某年的一次性低位当成长期底线"。默认 3 年（= history_years）。
+    #: 历史年数不足时降级为 WEN 并打 ``SAFETY_YEARS_NOT_ENOUGH``。
+    min_baodian_years: int = 3
+
     # ---- §6.3 分层边界
     tier_bounds: dict[str, tuple[float, float]] = Field(
         default_factory=lambda: {

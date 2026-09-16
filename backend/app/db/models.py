@@ -149,7 +149,21 @@ class AdmissionHistory(Base):
 
 
 class ProvinceYearStats(Base):
-    """省级年度元数据（位次归一化的分母来源）。"""
+    """省级年度元数据（位次归一化的分母来源）。
+
+    ★ M6 新增两列（ADR-015）：真实数据接入后发现"总量"与"一段线口径"必须分开记——
+    各年分数段表覆盖的最低分不同，累计人数自然不同（浙江 2026 官方表最低 266 分 → 292,753；
+    而一段线上的累计人数只有 184,816）。两者混用会让跨年位次失真：
+
+    * ``total_candidates``：该年分数段表**覆盖的最低分**对应的累计人数（官方原文口径）。
+      ★ 它**就是位次归一化的分母** —— 因为库中历史位次同样覆盖到二段（浙江 27.7–29.1 万），
+      两者必须同口径；
+    * ``segment1_cumulative``：**一段线上的累计人数**（历年同口径）。用途是**标定**：
+      无官方分数段表年份的"分数—累计人数"曲线要在官方一段线处精确闭合到它；
+    * ``segment1_line``：该年普通类一段线分数。
+
+    ``segment1_*`` 为 NULL 时表示模拟数据（没有"一段线"这个概念）。
+    """
 
     __tablename__ = "province_year_stats"
 
@@ -157,6 +171,8 @@ class ProvinceYearStats(Base):
     year: Mapped[int] = mapped_column(Integer, primary_key=True)
     track: Mapped[str] = mapped_column(String(16), primary_key=True)
     total_candidates: Mapped[int] = mapped_column(Integer, nullable=False)
+    segment1_cumulative: Mapped[int | None] = mapped_column(Integer)
+    segment1_line: Mapped[int | None] = mapped_column(Integer)
     source_url: Mapped[str] = mapped_column(String(512), nullable=False)
     is_synthetic: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 

@@ -153,7 +153,13 @@ def subject_coverage(session: Session, province: str, subjects: list[str]) -> di
         for name in set(unit.subject_requirement.subjects):
             by_subject[name] = by_subject.get(name, 0) + 1
 
-    unmatched = [u for u in units if u not in matched][:5]
+    # ★ M6 实测缺陷（ADR-015）：这里原先写的是 ``[u for u in units if u not in matched]``。
+    #   ``AdmissionUnit`` 是 Pydantic 模型，``in`` 会逐个做**深比较** —— 复杂度 O(n²)。
+    #   模拟数据只有 1,290 个单位时看不出来；换成浙江真实数据 18,543 个单位后，
+    #   这一个列表推导做了 **1.7 亿次** Pydantic ``__eq__``，接口耗时 398 秒（实测）。
+    #   改成按 unit_id 集合判定即可，语义完全一致。
+    matched_ids = {unit.unit_id for unit in matched}
+    unmatched = [unit for unit in units if unit.unit_id not in matched_ids][:5]
     return {
         "province": province,
         "year": CURRENT_YEAR,

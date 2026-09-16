@@ -54,7 +54,9 @@ W_MISSING_RANK_IGNORED = "MISSING_RANK_IGNORED"
 W_NO_NORMALIZATION_BASIS = "NO_NORMALIZATION_BASIS"
 W_ANALOG_POOL = "ANALOG_POOL_FALLBACK"
 W_UNKNOWN_BATCH = "UNKNOWN_BATCH"
-W_SAFETY_MARGIN_NOT_MET = "SAFETY_MARGIN_NOT_MET"  # 概率够高但留不出 15% 余量 → 不可称保底
+W_SAFETY_MARGIN_NOT_MET = "SAFETY_MARGIN_NOT_MET"  # 概率够高但留不出 60% 余量 → 不可称保底
+#: 历史年数不足 min_baodian_years：没有足够年份就不能承诺"这是底线"（M6/ADR-015）
+W_SAFETY_YEARS_NOT_ENOUGH = "SAFETY_YEARS_NOT_ENOUGH"
 
 
 @dataclass(frozen=True)
@@ -358,10 +360,19 @@ def estimate_probability(
 
     # ================= Step 8.6：安全闸门（★ 名师铁律 4「保底要真保底」）=================
     # 保/垫是**安全承诺**，不能只由概率区间给出：还要求考生位次比该单位近三年**最差年份**
-    # （位次数值最大者）的切线仍靠前 ≥ safety_margin（默认 15%）。
+    # （位次数值最大者）的切线仍靠前 ≥ safety_margin，且**至少有 min_baodian_years 年历史**。
     # 不满足则降级为 WEN 并显式告警——宁可不叫"保底"，也不给假保底。
     tier, gate_warning = _safety_gated_tier(probability, values, student.rank, params)
-    if gate_warning:
+    if gate_warning == W_SAFETY_YEARS_NOT_ENOUGH:
+        warnings.append(gate_warning)
+        reasons.append(
+            f"原始概率 {probability:.1%}（区间上属 {_tier_of(probability, params).value}），"
+            f"但该单位只有 {len(values)} 年可用历史（需 ≥ {params.min_baodian_years} 年）——"
+            f"年份太少时"
+            f"{'那一年' if len(values) == 1 else '那几年'}的位次可能是一次性的，"
+            f"不能据此承诺「这是底线」，因此降级为 {tier.value}。"
+        )
+    elif gate_warning:
         warnings.append(gate_warning)
         reasons.append(
             f"原始概率 {probability:.1%}（区间上属 {_tier_of(probability, params).value}），"
@@ -393,11 +404,18 @@ def _safety_gated_tier(
 
     判定（DOMAIN_RULES R-007 的本意，注意方向）：
     ``min(近三年归一化最低位次) ≥ 考生位次 × (1 + safety_margin)``
-    —— 即**考生位次比该单位最差年份的切线还靠前 15% 以上**，才允许称"保底/垫底"。
+    —— 即**考生位次比该单位最差年份的切线还靠前 60% 以上**，才允许称"保底/垫底"。
+
+    ★ M6 增补（ADR-015 缺陷 6，真实数据回测逼出来的）：还要求**至少 N 个不同年份**的历史
+    （``params.min_baodian_years``，默认 3）。原因见下面的实测：只拿 1–2 年历史当"垫底"，
+    等于把某一年的一次性低位当成长期可依赖的底线 —— 6 例保底失效全部落在这个口子上。
+    历史年数不足时同样降级为 WEN，并打 ``SAFETY_YEARS_NOT_ENOUGH``。
     """
     band_tier = _tier_of(probability, params)
     if band_tier not in (Tier.BAO, Tier.DIAN) or student_rank is None or not values:
         return band_tier, None
+    if len(values) < params.min_baodian_years:
+        return Tier.WEN, W_SAFETY_YEARS_NOT_ENOUGH
     hardest_year_rank = min(values)  # 位次数值最小 = 该单位最难的一年
     required = student_rank * (1.0 + params.safety_margin)
     if hardest_year_rank >= required:
@@ -408,6 +426,96 @@ def _safety_gated_tier(
 # ---------------------------------------------------------------------------
 # Step 0：无历史数据回退
 # ---------------------------------------------------------------------------
+def _analog_latest(analog: AnalogUnit, target_year: int) -> AdmissionRecord | None:
+    """类比池成员的"最近一条可用历史"（``_step0_no_history`` 的热路径）。
+
+    ★ 为什么需要它：Step 0 会对类比池里**每一个**成员调一次 ``_usable_records``，
+    而类比池成员动辄上千个。M6 接入浙江真实数据后实测：18,543 个单位里 3,010 个走
+    Step 0，``_usable_records`` 被调用 **87 万次**，单次推荐要 25 秒（AGENTS.md §M7
+    的目标是 P95 < 1s）。这里做**等价**的短路：只在"该单位 + 早于目标年"的记录里取最新一条。
+
+    语义与 ``usable_records`` 完全一致：同 ``unit_key``、``year < target_year``、
+    有 ``min_rank``、``data_quality ∈ USABLE_QUALITIES``；只是不再为**每个**类比成员
+    重建一次列表与 Pydantic 对象。
+    """
+    unit_key = unit_key_of(analog.unit.unit_id)
+    best: AdmissionRecord | None = None
+    for record in analog.records:
+        if record.unit_key != unit_key or record.year >= target_year:
+            continue
+        if record.min_rank is None or record.data_quality not in USABLE_QUALITIES:
+            continue
+        if best is None or record.year > best.year:
+            best = record
+    return best
+
+
+#: Step 0 类比候选的**进程内缓存**，键为 ``(类比桶指纹, 目标年)``。
+#:
+#: 为什么可以缓存：同一个类比桶（同地区 + 同层次 + 同专业类）在一批单位里被反复复用，
+#: 而"哪些类比单位有可用历史、最近一条是哪年"对一个给定年份是**确定的**。
+#: M6 实测（浙江真实数据）：不缓存要遍历 85.6 万个类比成员；缓存后同桶只算一次。
+#: 缓存永不跨越"目标年"与"桶内容指纹"，因此不会把不同批次/不同年份的结果混用。
+_ANALOG_CACHE: dict[tuple[int, int], tuple[list[float], list[HistoryEvidence]]] = {}
+
+
+def _analog_candidates(
+    analog_pool: Sequence[AnalogUnit],
+    *,
+    college_province: str,
+    target_year: int,
+    current_total: int | None,
+) -> tuple[list[float], list[HistoryEvidence]]:
+    """从类比桶里算出 ``(候选预测位次, 类比证据)``（结果按桶内容 + 年份缓存）。
+
+    判据：同地区（院校所在省与目标单位相同）→ 有可用历史 → 取最近一年的归一化位次。
+    """
+    fingerprint = hash(
+        (
+            len(analog_pool),
+            tuple(analog.unit.unit_id for analog in analog_pool[:8]),
+            tuple(analog.unit.unit_id for analog in analog_pool[-8:]),
+        )
+    )
+    cache_key = (fingerprint, target_year)
+    cached = _ANALOG_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    candidates: list[float] = []
+    evidence: list[HistoryEvidence] = []
+    for analog in analog_pool:
+        if analog.college_province and analog.college_province != college_province:
+            continue
+        latest = _analog_latest(analog, target_year)
+        if latest is None or latest.min_rank is None:
+            continue
+        if current_total is not None and latest.total_candidates:
+            candidates.append(
+                normalize_rank(int(latest.min_rank), latest.total_candidates, current_total)
+            )
+        else:
+            candidates.append(float(latest.min_rank))
+        # ★ 类比证据：显式标注"这不是本单位历史"，避免被误当成真实历史
+        #   （§7 契约铁律 1 要求 recommend 每项 evidence 非空）
+        evidence.append(
+            HistoryEvidence(
+                year=latest.year,
+                min_rank=latest.min_rank,
+                min_score=latest.min_score,
+                plan_count=latest.plan_count,
+                data_quality=latest.data_quality,
+                is_collected=latest.is_collected,
+                source_url=latest.source_url,
+                note=f"类比单位 {analog.unit.unit_id}",
+            )
+        )
+    if len(_ANALOG_CACHE) > 512:  # 简单上限：批量预测/回测时的桶数量有限
+        _ANALOG_CACHE.clear()
+    _ANALOG_CACHE[cache_key] = (candidates, evidence)
+    return candidates, evidence
+
+
 def _step0_no_history(
     student: StudentProfile,
     target: AdmissionUnit,
@@ -422,39 +530,12 @@ def _step0_no_history(
     warnings.append(W_NO_HISTORY)
     reasons = ["该单位没有任何可用历史数据（新增专业/新增院校），禁止直接猜测概率。"]
 
-    target_province = target.province
-    candidates: list[float] = []
-    analog_evidence: list[HistoryEvidence] = []
-    for analog in analog_pool:
-        # 同地区：类比单位与目标单位位于同一省（按院校所在省判断）
-        if analog.college_province and analog.college_province != target.college_id.split("-", 1)[0]:
-            continue
-        analog_records, _ = _usable_records(analog.records, analog.unit)
-        if not analog_records:
-            continue
-        latest = analog_records[0]
-        if latest.min_rank is None:
-            continue
-        if current_total is not None and latest.total_candidates:
-            candidates.append(normalize_rank(int(latest.min_rank), latest.total_candidates, current_total))
-        else:
-            candidates.append(float(latest.min_rank))
-        # ★ 类比证据：显式标注"这不是本单位历史"，避免被误当成真实历史
-        #   （§7 契约铁律 1 要求 recommend 每项 evidence 非空）
-        analog_evidence.append(
-            HistoryEvidence(
-                year=latest.year,
-                min_rank=latest.min_rank,
-                min_score=latest.min_score,
-                plan_count=latest.plan_count,
-                data_quality=latest.data_quality,
-                is_collected=latest.is_collected,
-                source_url=latest.source_url,
-                note=f"类比单位 {analog.unit.unit_id}",
-            )
-        )
-    # 同一招生省份（所有候选单位来自同一省，target_province 仅用于可读性）
-    _ = target_province
+    candidates, analog_evidence = _analog_candidates(
+        analog_pool,
+        college_province=target.college_id.split("-", 1)[0],
+        target_year=target.year,
+        current_total=current_total,
+    )
 
     if len(candidates) < 3:
         reasons.append(

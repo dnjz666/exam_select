@@ -158,9 +158,18 @@ def validate_rows(
             report.add(ERROR, "SOURCE_URL_MISSING", f"{table_name}: {missing} 行缺 source_url")
 
     # ---------- 2) 唯一性 ----------
-    code_dup = [c for c, n in Counter(c["code"] for c in colleges).items() if n > 1]
-    if code_dup:
-        report.add(ERROR, "COLLEGE_CODE_DUPLICATE", f"院校代码重复：{code_dup[:5]}")
+    #
+    # ★ M6 勘误（ADR-015）：院校代号只在**省内**唯一，不是全国唯一。
+    #   浙江招生用的 0001–9034 是"面向浙江招生的院校顺序号"，其中既有浙江大学也有清华北大；
+    #   模拟数据用的是另一套全局号段。真实数据接入后，两者会出现"同代号不同院校"，
+    #   这是**正常**的（主键是 ``{省}-{代号}``）。唯一性必须按 ``(province, code)`` 判定。
+    college_dup = [
+        key
+        for key, count in Counter((c.get("province"), c["code"]) for c in colleges).items()
+        if count > 1
+    ]
+    if college_dup:
+        report.add(ERROR, "COLLEGE_CODE_DUPLICATE", f"(院校所在地, 院校代号) 重复：{college_dup[:5]}")
     major_code_dup = [c for c, n in Counter(m["code"] for m in majors).items() if n > 1]
     if major_code_dup:
         report.add(ERROR, "MAJOR_CODE_DUPLICATE", f"专业代码重复：{major_code_dup[:5]}")
@@ -185,7 +194,14 @@ def validate_rows(
         )
 
     # ---------- 3) 一分一段表：单调、累加一致、闭合到总考生数 ----------
-    stats_index = {(s["province"], s["year"], s["track"]): s["total_candidates"] for s in province_year_stats}
+    #
+    # ★ M6（ADR-015）：跨年归一化的分母是 ``total_candidates``（该年分数段表覆盖的
+    #   最低分对应的累计人数）—— 它才是与库中位次同口径的量（浙江合编数据覆盖到二段）。
+    #   ``segment1_cumulative``（一段线上线人数）只用于标定曲线，不参与本节的闭合判断。
+    stats_index = {
+        (s["province"], s["year"], s["track"]): s["total_candidates"]
+        for s in province_year_stats
+    }
     by_prov_year: dict[tuple[str, int, str], list[dict[str, Any]]] = defaultdict(list)
     for row in score_rank_table:
         by_prov_year[(row["province"], row["year"], row["track"])].append(row)
@@ -218,7 +234,8 @@ def validate_rows(
             report.add(
                 ERROR,
                 "SCORE_TOTAL_MISMATCH",
-                f"{key}: 最低分累计位次 {rows[-1]['cumulative_rank']} != 总考生数 {total}",
+                f"{key}: 最低分累计位次 {rows[-1]['cumulative_rank']} != 归一化分母 {total}"
+                "（位次归一化的分母必须与分数段表口径一致）",
             )
 
     # ---------- 4) 计划数、选科状态、批次一致性、组内专业数 ----------
@@ -285,6 +302,19 @@ def validate_rows(
             report.add(ERROR, "COLLEGE_REF_MISSING", f"{unit['unit_id']}: 院校不存在")
 
     # ---------- 6) 历史行：口径、一致性、引用 ----------
+    #
+    # ★ M6（ADR-015）：一分一段表有两种来源，校验口径必须跟着变
+    #   * ``is_synthetic=0``：考试院官方分数段表原文 → 分数↔位次必须严格自洽（±2 分）；
+    #   * ``is_synthetic=1``：无官方表，由**当年官方投档记录**（分数↔位次）保序回归标定
+    #     并在官方一段线处按官方上线人数闭合 → 它是**估计曲线**，"反查分数 ≠ 该专业实际
+    #     最低分"是估计残差，不是数据错误。容忍度放宽到 ``params.modeled_score_gap``，
+    #     并且只要存在超差就发 WARNING，绝不让"模型化"这件事悄悄过关。
+    modeled_years = {
+        (row["province"], row["year"], row["track"])
+        for row in score_rank_table
+        if row.get("is_synthetic")
+    }
+    modeled_gap_hits: Counter[int] = Counter()
     total_candidates_ok = 0
     for hist in admission_history:
         key3 = (hist["province"], hist["year"], "综合")
@@ -320,13 +350,33 @@ def validate_rows(
                 )
             if hist["min_score"] is not None:
                 expect = _score_for_rank(lookup, hist["min_rank"])
-                if abs(expect - hist["min_score"]) > 2:
+                gap = abs(expect - hist["min_score"])
+                if key3 in modeled_years:
+                    if gap > params.modeled_score_gap:
+                        report.add(
+                            ERROR,
+                            "RANK_SCORE_INCONSISTENT",
+                            f"{hist['unit_key']}@{hist['year']}: min_rank={hist['min_rank']} 反查 "
+                            f"{expect} 分，实际 {hist['min_score']} 分"
+                            f"（超过模型化容忍度 {params.modeled_score_gap}）",
+                        )
+                    elif gap > params.rank_score_gap:
+                        modeled_gap_hits[hist["year"]] += 1
+                elif gap > params.rank_score_gap:
                     report.add(
                         ERROR,
                         "RANK_SCORE_INCONSISTENT",
                         f"{hist['unit_key']}@{hist['year']}: min_rank={hist['min_rank']} 反查 "
                         f"{expect} 分，实际 {hist['min_score']} 分",
                     )
+    if modeled_gap_hits:
+        report.add(
+            WARNING,
+            "W_RANK_SCORE_MODELED",
+            "以下年份的一分一段表为**标定估计**（非官方分数段表），"
+            "反查分数与该专业官方最低分存在残差（不影响位次口径）："
+            + "，".join(f"{year} {count} 条" for year, count in sorted(modeled_gap_hits.items())),
+        )
 
     # ---------- 7) WARNING：质量提示与注入样本可检出性 ----------
     small_plan = [u for u in admission_units if u["plan_count"] < params.small_plan_warn]

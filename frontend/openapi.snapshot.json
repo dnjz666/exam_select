@@ -1155,7 +1155,7 @@
           },
           "plan_count": {
             "type": "integer",
-            "exclusiveMinimum": 0,
+            "exclusiveMinimum": 0.0,
             "title": "Plan Count"
           },
           "tuition": {
@@ -2518,7 +2518,7 @@
           "utility": {
             "type": "number",
             "title": "Utility",
-            "default": 0
+            "default": 0.0
           },
           "obey_adjustment": {
             "anyOf": [
@@ -3028,7 +3028,7 @@
           "utility": {
             "type": "number",
             "title": "Utility",
-            "default": 0
+            "default": 0.0
           },
           "score_breakdown": {
             "$ref": "#/components/schemas/ScoreBreakdown"
@@ -3036,12 +3036,12 @@
           "predicted_min_rank": {
             "type": "number",
             "title": "Predicted Min Rank",
-            "default": 0
+            "default": 0.0
           },
           "sigma": {
             "type": "number",
             "title": "Sigma",
-            "default": 0
+            "default": 0.0
           },
           "evidence": {
             "items": {
@@ -3120,8 +3120,8 @@
           },
           "limit": {
             "type": "integer",
-            "maximum": 500,
-            "minimum": 1,
+            "maximum": 500.0,
+            "minimum": 1.0,
             "title": "Limit",
             "default": 60
           },
@@ -3174,7 +3174,7 @@
           "data_coverage": {
             "type": "number",
             "title": "Data Coverage",
-            "default": 0
+            "default": 0.0
           },
           "tier_distribution": {
             "additionalProperties": {
@@ -3556,32 +3556,32 @@
           "region_score": {
             "type": "number",
             "title": "Region Score",
-            "default": 0
+            "default": 0.0
           },
           "college_level_score": {
             "type": "number",
             "title": "College Level Score",
-            "default": 0
+            "default": 0.0
           },
           "major_match_score": {
             "type": "number",
             "title": "Major Match Score",
-            "default": 0
+            "default": 0.0
           },
           "tuition_score": {
             "type": "number",
             "title": "Tuition Score",
-            "default": 0
+            "default": 0.0
           },
           "city_score": {
             "type": "number",
             "title": "City Score",
-            "default": 0
+            "default": 0.0
           },
           "misc_score": {
             "type": "number",
             "title": "Misc Score",
-            "default": 0
+            "default": 0.0
           }
         },
         "type": "object",
@@ -4274,7 +4274,7 @@
           "safety_margin": {
             "type": "number",
             "title": "Safety Margin",
-            "default": 0
+            "default": 0.0
           },
           "safety_gate": {
             "anyOf": [
@@ -4571,7 +4571,7 @@
           "total_utility": {
             "type": "number",
             "title": "Total Utility",
-            "default": 0
+            "default": 0.0
           },
           "violations": {
             "items": {

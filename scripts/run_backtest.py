@@ -67,6 +67,8 @@ def main(argv: list[str] | None = None) -> int:
         value = item["value"]
         shown = "—" if value is None else (f"{value:.4f}" if name == "brier" else f"{value:.2%}")
         print(f"  {'✅' if item['passed'] else '❌'} {name:<20} 实际 {shown:>9}   目标 {item['target']}")
+    for note in report.notes():
+        print(f"  ⚠️ {note}")
     print("-" * 66)
 
     failures = [s for s in samples if s.tier.value in ("BAO", "DIAN") and not s.admitted]

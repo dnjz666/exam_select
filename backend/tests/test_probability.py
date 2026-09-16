@@ -19,6 +19,8 @@ from app.core.probability import (
     W_MISSING_RANK_IGNORED,
     W_NO_HISTORY,
     W_NO_NORMALIZATION_BASIS,
+    W_SAFETY_MARGIN_NOT_MET,
+    W_SAFETY_YEARS_NOT_ENOUGH,
     W_SINGLE_YEAR_DATA,
     W_SMALL_PLAN,
     W_SUSPECT_IGNORED,
@@ -393,3 +395,64 @@ def test_property_normalization_is_proportional(total_from: int, total_to: int) 
         make_student(12_000), UNIT, history, RULE, PARAMS, current_total_candidates=total_to
     )
     assert result.predicted_min_rank == pytest.approx(12_000 * total_to / total_from, rel=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# Step 8.6 安全闸门（★ 名师铁律 4「保底要真保底」，M6/ADR-015 缺陷 6）
+# ---------------------------------------------------------------------------
+def test_baodian_requires_enough_history_years() -> None:
+    """★ 只有 1 年历史时，即使概率打进 DIAN 区间，也**不得**判为保底。
+
+    真实数据回测里 6 例保底失效**全部**是"只有 1–2 年历史，把某一年的低位当长期底线"
+    （兰州工业学院 148,172 → 21,548 这种）。所以年份不足必须降级，而不是照概率标签给。
+    """
+    one_year = _estimate({2025: 20_000}, rank=1000)  # 考生远优于唯一那一年 → 概率≈0.98
+    assert W_SAFETY_YEARS_NOT_ENOUGH in one_year.warnings
+    assert one_year.tier is Tier.WEN
+    assert one_year.probability is not None and one_year.probability > 0.93  # 原始概率如实保留
+    assert any("年可用历史" in reason for reason in one_year.reasons)
+    # 原始分层若按概率区间本应是 DIAN —— 降级是刻意的保守
+    assert one_year.tier is not Tier.DIAN
+
+
+def test_two_years_is_still_not_enough_by_default() -> None:
+    """2 年历史同样不足（真实数据 2025 回测的窗口正好是 2 年）。"""
+    two_years = _estimate({2025: 20_000, 2024: 21_000}, rank=1000)
+    assert W_SAFETY_YEARS_NOT_ENOUGH in two_years.warnings
+    assert two_years.tier is Tier.WEN
+
+
+def test_three_years_with_margin_is_allowed_to_be_dian() -> None:
+    """三年历史 + 余量足够 → 正常给出 DIAN（不能把闸门做成"永远不给保底"）。"""
+    three_years = _estimate({2025: 20_000, 2024: 21_000, 2023: 19_500}, rank=1000)
+    assert three_years.tier is Tier.DIAN
+    assert W_SAFETY_YEARS_NOT_ENOUGH not in three_years.warnings
+    assert W_SAFETY_MARGIN_NOT_MET not in three_years.warnings
+
+
+def test_three_years_without_margin_is_downgraded() -> None:
+    """三年历史但给不出 60% 余量 → 仍降级为 WEN（原有闸门不能被新闸门取代）。
+
+    场景：近三年 1,400/1,420/1,380（考生 1,000 → 概率落在 BAO 区间），
+    但最难一年 1,380 < 1,000 × 1.6 = 1,600 → 余量不足，必须降级。
+    """
+    tight = _estimate({2025: 1_400, 2024: 1_420, 2023: 1_380}, rank=1000)
+    assert tight.tier is Tier.WEN
+    assert W_SAFETY_MARGIN_NOT_MET in tight.warnings
+    assert W_SAFETY_YEARS_NOT_ENOUGH not in tight.warnings
+    assert tight.probability is not None and tight.probability >= 0.75  # 原始概率如实保留
+
+
+def test_min_baodian_years_is_configurable() -> None:
+    """参数可调：把门槛降到 1 年时，单年历史可以评上 DIAN（证明闸门读的是 ModelParams）。"""
+    history = make_history(KEY, {2025: 20_000})
+    relaxed = estimate_probability(
+        make_student(1000),
+        UNIT,
+        history,
+        RULE,
+        ModelParams(min_baodian_years=1),
+        current_total_candidates=400_000,
+    )
+    assert relaxed.tier is Tier.DIAN
+    assert W_SAFETY_YEARS_NOT_ENOUGH not in relaxed.warnings

@@ -111,14 +111,34 @@ class BacktestReport:
     tier_counts: dict[str, int] = field(default_factory=dict)
     confidence_counts: dict[str, int] = field(default_factory=dict)
 
+    def notes(self) -> list[str]:
+        """必须如实说出来的口径提示（不是"没达标"，而是"这次没测到"）。"""
+        out: list[str] = []
+        if self.safety_failure_rate is None:
+            out.append(
+                "本次样本里没有任何 BAO/DIAN 志愿（保底失效率无从计算）："
+                "通常是因为可用历史年数不足 min_baodian_years，安全闸门把"
+                "「保/垫」全部降级为 WEN。"
+                "**没有做出安全承诺，就没有失约；但也不能据此声称保底有效。**"
+            )
+        return out
+
     # ---- 指标判定 ----
     def checks(self) -> dict[str, dict[str, object]]:
         chong_low, chong_high = THRESHOLDS["chong_hit_rate_range"]  # type: ignore[misc]
+        # ★ 保底失效率：``None`` 表示**样本里一个 BAO/DIAN 都没有**（不是"没达标"）。
+        #   这种情况不能算失败——没有做出安全承诺，就没有失约；但也不能算"证明了保底有效"，
+        #   所以它既通过判定、又会出现在 ``notes`` 里如实说明（M6/ADR-015 缺陷 6）。
+        #   ⚠️ 边界：整个回测**一条可用样本都没有**时（``evaluated_count == 0``）不算通过——
+        #   那是"什么都没测"，不是"测了且没失约"。
+        safety_passed = self.safety_failure_rate == 0.0 or (
+            self.safety_failure_rate is None and self.evaluated_count > 0
+        )
         return {
             "safety_failure_rate": {
                 "value": self.safety_failure_rate,
                 "target": "== 0%",
-                "passed": self.safety_failure_rate is not None and self.safety_failure_rate == 0.0,
+                "passed": safety_passed,
             },
             "wen_hit_rate": {
                 "value": self.wen_hit_rate,
@@ -158,6 +178,7 @@ class BacktestReport:
                 "brier": self.brier,
             },
             "checks": self.checks(),
+            "notes": self.notes(),
             "calibration": self.calibration,
             "by_plan_band": self.by_plan_band,
             "by_level": self.by_level,

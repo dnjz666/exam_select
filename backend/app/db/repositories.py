@@ -44,7 +44,17 @@ def now_iso() -> str:
 # 基础数据
 # ---------------------------------------------------------------------------
 def get_province_stats(session: Session, province: str) -> dict[int, int]:
-    """``{year: total_candidates}``（位次归一化的分母来源，禁止估算）。"""
+    """``{year: 归一化分母}``（位次归一化的分母来源，禁止估算）。
+
+    ★ M6 口径（ADR-015）：分母是**该年分数段表覆盖的最低分对应的累计人数**
+    （``total_candidates``）——它必须与库中历史位次的口径一致：浙江的历年投档数据
+    （合编 PDF）覆盖到二段，最低分 268–274 分，位次上限 27.7 万–29.1 万，因此分母
+    必须取"含二段"的总量；若取"一段线上线人数"（18 万左右），二段位次就会被判越界、
+    跨年归一化也会失真。
+
+    ``segment1_cumulative``（一段线上线人数）另有用途：它是**一段线口径**的锚点，
+    用于标定无官方分数段表年份的曲线（见 ``etl/loaders/zhejiang.py``）。
+    """
     rows = session.execute(
         select(db.ProvinceYearStats).where(db.ProvinceYearStats.province == province)
     ).scalars()
@@ -178,8 +188,12 @@ def load_units(
 ) -> list[AdmissionUnit]:
     """该省该年的投档单位。
 
-    ``plan_year`` 为 None 时直接用库中单位的 ``plan_count``（填报年视图）；
-    指定年份时用 ``admission_plans`` 里该年的计划数重建视图（历史/回测视图）。
+    ★ M6（ADR-015）：真实数据的 ``admission_units`` **逐年入库**（浙江 2023–2026 都有行），
+    因此优先取 ``year`` 那一年的行（名称、选考要求、计划数都是那一年的官方口径）。
+    模拟数据只有填报年（``CURRENT_YEAR``）一份，缺该年行时回落到填报年视图，
+    并用 ``admission_plans`` 里目标年的计划数重建（与原实现一致）。
+
+    ``plan_year`` 显式传入时，无论如何都用 ``admission_plans`` 里该年的计划数覆盖。
     """
     plan_counts: dict[str, int] = {}
     if plan_year is not None:
@@ -190,16 +204,29 @@ def load_units(
             ).scalars()
         }
 
-    units: list[AdmissionUnit] = []
-    for row in session.execute(
-        select(db.AdmissionUnitRow).where(
-            db.AdmissionUnitRow.province == province, db.AdmissionUnitRow.year == CURRENT_YEAR
+    rows = list(
+        session.execute(
+            select(db.AdmissionUnitRow).where(
+                db.AdmissionUnitRow.province == province, db.AdmissionUnitRow.year == year
+            )
+        ).scalars()
+    )
+    if not rows:
+        rows = list(
+            session.execute(
+                select(db.AdmissionUnitRow).where(
+                    db.AdmissionUnitRow.province == province,
+                    db.AdmissionUnitRow.year == CURRENT_YEAR,
+                )
+            ).scalars()
         )
-    ).scalars():
+
+    units: list[AdmissionUnit] = []
+    for row in rows:
         if plan_year is None:
-            units.append(to_unit(row, year=row.year, plan_count=row.plan_count))
+            units.append(to_unit(row, year=year, plan_count=row.plan_count))
             continue
-        plan = plan_counts.get(unit_key_of(row.unit_id))
+        plan = row.plan_count if row.year == plan_year else plan_counts.get(unit_key_of(row.unit_id))
         if plan:
             units.append(to_unit(row, year=plan_year, plan_count=plan))
     return units
