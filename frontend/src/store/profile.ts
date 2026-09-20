@@ -162,6 +162,13 @@ export const useProfileStore = create<ProfileState>()(
  *
  * 后端允许**草稿态**：缺字段不会报错，而是回传 `missing_fields`；
  * 只有进入计算路径（推荐/志愿表）才会 409——这正是"不替考生假设"的落地方式。
+ *
+ * ★ 失效草稿 id 的自愈（实测缺陷）：`studentId` 会随草稿持久化到 localStorage，
+ * 但后端库可能被重建（`scripts/seed.py --reset`、换机器、清库）——那时这个 id 在后端
+ * **不存在**，PATCH 会 404，向导第 3 步就直接报"后端有问题"（实测日志：
+ * `PATCH /api/v1/students/stu-b9079021b8ef 404`）。
+ * 因此 404 时**丢掉旧 id 并重新建档**，而不是把 404 抛给考生——
+ * 对考生来说"我的草稿还在"才是正确语义，档案本来就是可以重建的。
  */
 export async function submitDraft(): Promise<StudentPayload> {
   const state = useProfileStore.getState()
@@ -180,9 +187,19 @@ export async function submitDraft(): Promise<StudentPayload> {
     physical_exam: state.physicalExam,
     preferences: state.preferences,
   }
-  const envelope = state.studentId
-    ? await api.students.patch(state.studentId, payload)
-    : await api.students.create(payload)
+  let envelope
+  if (state.studentId) {
+    try {
+      envelope = await api.students.patch(state.studentId, payload)
+    } catch (error) {
+      if (!(error instanceof ApiError) || error.status !== 404) throw error
+      // 草稿 id 已失效：清掉它，走建档路径重建（并把重建后的 id 写回 store）
+      useProfileStore.setState({ studentId: null, student: null, lastError: null })
+      envelope = await api.students.create(payload)
+    }
+  } else {
+    envelope = await api.students.create(payload)
+  }
   useProfileStore.getState().setStudent(envelope.data)
   return envelope.data
 }

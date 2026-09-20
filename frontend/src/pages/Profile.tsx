@@ -510,8 +510,10 @@ function Step3Score({ provinceMeta, onDone }: { provinceMeta: ProvinceMeta | nul
     let alive = true
     setConverting(true)
     setConvertError(null)
+    // ★ 用 submitDraft() **返回的**档案 id 去换算位次，而不是闭包里的 profile.studentId：
+    //   草稿 id 若在后端已失效，submitDraft 会自愈重建档案并换新 id，闭包里的旧值会 404。
     submitDraft()
-      .then(() => api.students.resolveRank(profile.studentId as string))
+      .then((student) => api.students.resolveRank(student.id))
       .then((envelope) => {
         if (!alive) return
         setComputed(envelope.data)

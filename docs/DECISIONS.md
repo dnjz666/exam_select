@@ -1417,6 +1417,40 @@ Profile 定位到唯一的真凶：`_step0_no_history` 对类比池里**每一�
 在 UI 上明确与"返回的 N 条"区分开。`bundle` 里已有一个尚未使用的
 `tier_counts()` 方法可以直接用。
 
+### 缺陷 7（前端，用户实测报障）：草稿 id 失效后向导直接报"后端有问题"
+
+用户在建档向导第 3 步看到报错，后端日志是：
+
+```
+PATCH /api/v1/students/stu-b9079021b8ef HTTP/1.1  404 Not Found
+GET   /api/v1/majors/search?limit=300             200 OK
+```
+
+**根因**：`studentId` 会随草稿持久化进 `localStorage`（§8.1 要求"中途刷新不丢失"），
+而后端库在本轮被重建过（`seed.py --reset`——M6 给 `province_year_stats` 加了两列，必须重建）：
+旧 id 在后端**已不存在**，于是 `submitDraft()` 走 PATCH 分支拿到 404，
+`Step3Score` 把它当"换算失败"显示出来，考生看到的就是"后端有问题"。
+
+**这不是后端的 bug，也不该让考生去清浏览器缓存**。档案本来就是**可重建的草稿**，
+正确语义是"自愈"：
+
+1. `submitDraft()` 捕获 404 → 丢掉失效 id（`studentId/student/lastError` 清空）→ 走 POST 重建 → 写回新 id；
+2. `Step3Score` 用 `submitDraft()` **返回的**档案 id 去 `resolve-rank`，
+   不再用闭包里的旧 `profile.studentId`（否则自愈换了新 id，换算仍在打旧 id）。
+
+实测复现与验证（临时起后端 8011 端口，真实数据）：
+
+```
+PATCH /students/stu-b9079021b8ef  → 404（复现用户看到的现象）
+POST  /students                   → 201 id=stu-b479de20f939
+PATCH /students/stu-b479de20f939  → 200
+POST  /students/{id}/resolve-rank → rank=18584 total=292753
+                                    src=real://…?score_segment=2026   ← 官方一分一段表原文
+```
+
+> 提醒（已写进 HANDOVER）：**任何一次 `seed.py --reset` 都会让所有浏览器里的草稿 id 失效**。
+> 自愈逻辑已就位；若在别处（如推荐页直接刷新）看到 404，回建档向导走一步即可恢复。
+
 **回归验证（同一天实测，证明新闸门没有破坏模拟基线）**：
 切回 `--source synthetic` 后，山东 2025 全量回测仍然是
 `0.00% / 90.54% / 30.77% / 0.0080`（四项全达标，与 ADR-014 记录的基线**逐位一致**）——

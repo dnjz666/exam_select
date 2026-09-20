@@ -73,6 +73,7 @@
 | **网络** | ★ 本机 **schannel 在 agent 沙箱内不可用**（curl/Invoke-WebRequest 报 `SEC_E_NO_CREDENTIALS`），但 **Node 自带 TLS 正常**。排错时别误判成断网 |
 | 数据库 | `data\exam_select.db`（SQLite，约 45 MB）。路径**锚定到仓库根**（`config.anchor_sqlite_url`） |
 | 测试前置 | `pytest backend/tests` 依赖**已播种**的数据库；未播种会明确失败（不静默跳过） |
+| **`seed.py --reset` 的连带影响** | 它会让**所有浏览器里已保存的草稿 id 失效**（localStorage 的 `exam-select.profile-draft`）。前端已做自愈（PATCH 404 → 自动重新建档，ADR-015 缺陷 7）；若在推荐页/志愿表页直接刷新看到 404，**回建档向导走一步**即可恢复 |
 | PowerShell 坑 | **不要用 `curl.exe -d '{"json"}'` 发 POST**（双引号被吃 → 422）；用 `Invoke-RestMethod` + `ConvertTo-Json` |
 | 终端中文 | 先 `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8` |
 | `debug.log` | 根目录若出现，是 DSH Desktop 的 Electron crashpad 日志，非项目产物（已 gitignore） |
