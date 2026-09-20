@@ -382,6 +382,72 @@ def test_recommend_excludes_too_risky_by_default(client: TestClient, student_id:
     assert len(risky["data"]["items"]) >= len(default["data"]["items"])
 
 
+def test_soft_region_filter_changes_ranking_but_not_the_pool(
+    client: TestClient, student_id: str
+) -> None:
+    """★ 回归（ADR-017 缺陷 2）：推荐页的"意向地区"在不勾硬约束时必须**参与打分**。
+
+    原实现里 ``criteria.regions`` 只在 ``intent_as_hard=True`` 时被使用，
+    软偏好打分读的是 ``preferences.intended_regions``（考生档案里的），
+    而推荐页勾的意向从来没被合并进去 → 勾了地区，列表与效用值一模一样。
+    """
+    baseline = client.post(f"{API}/recommend", json={"student_id": student_id, "limit": 20}).json()
+    preferred = client.post(
+        f"{API}/recommend",
+        json={"student_id": student_id, "limit": 20, "filters": {"regions": ["zhejiang"]}},
+    ).json()
+    base_items = baseline["data"]["items"]
+    pref_items = preferred["data"]["items"]
+    assert base_items and pref_items
+
+    # 候选池不变（软偏好不过滤，§6.5）
+    assert (
+        preferred["data"]["stats"]["hard_filtered_out"]
+        == baseline["data"]["stats"]["hard_filtered_out"]
+    )
+    # 但排序必须变：意向地区内的院校应获得更高的 region 分项
+    base_scores = {
+        item["unit"]["unit_id"]: item["score_breakdown"]["region_score"] for item in base_items
+    }
+    zhejiang_items = [
+        item for item in pref_items if (item["college"] or {}).get("province") == "zhejiang"
+    ]
+    assert zhejiang_items, "意向浙江时应能给出浙江院校"
+    for item in zhejiang_items:
+        assert item["score_breakdown"]["region_score"] == 1.0
+        unit_id = item["unit"]["unit_id"]
+        if unit_id in base_scores:
+            assert item["score_breakdown"]["region_score"] >= base_scores[unit_id]
+    # 无意向时同一条目的 region_score 不应是 1.0（说明确实被降权了）
+    out_of_region = [
+        item for item in pref_items if (item["college"] or {}).get("province") not in (None, "zhejiang")
+    ]
+    assert out_of_region, "真实数据里应有外省院校"
+    assert all(item["score_breakdown"]["region_score"] == 0.0 for item in out_of_region)
+
+
+def test_hard_region_filter_actually_filters(client: TestClient, student_id: str) -> None:
+    """★ 回归（ADR-017 缺陷 1）：勾硬约束后地区过滤必须真的生效，且**不能剔光**。
+
+    原实现取 unit_id 第一段当"院校所在省"，永远是招生省 → 勾任何地区都剔光全部候选。
+    """
+    hard = client.post(
+        f"{API}/recommend",
+        json={
+            "student_id": student_id,
+            "limit": 20,
+            "filters": {"regions": ["zhejiang"], "intent_as_hard": True},
+        },
+    ).json()
+    items = hard["data"]["items"]
+    assert items, "意向浙江 + 硬约束不应把候选剔光（浙江本省有 3,500+ 个单位）"
+    reasons = hard["data"]["stats"]["filtered_out_reasons"]
+    assert reasons.get("REGION_NOT_INTENDED", 0) > 0, "外省单位应被地区硬约束剔除"
+    for item in items:
+        province = (item["college"] or {}).get("province")
+        assert province in (None, "zhejiang"), item["unit"]["unit_id"]
+
+
 # ---------------------------------------------------------------------------
 # 志愿表：生成 → 读取 → 手改 → 校验 → 导出
 # ---------------------------------------------------------------------------

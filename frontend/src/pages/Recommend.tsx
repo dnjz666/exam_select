@@ -16,7 +16,7 @@ import { TierBadge } from '../components/TierBadge'
 import { TierLegend } from '../components/Disclaimer'
 import { formatNumber, formatPlanCount, formatRank, formatTuition, describeSubjectRequirement } from '../lib/format'
 import { useAsync } from '../lib/hooks'
-import { PROVINCE_LABEL, TIER_ORDER, TIER_STYLE, UNIT_TYPE_LABEL, missingFieldLabel, provinceLabel } from '../lib/labels'
+import { PROVINCE_LABEL, TIER_ORDER, TIER_STYLE, UNIT_TYPE_LABEL, missingFieldLabel, provinceLabel, regionLabel } from '../lib/labels'
 import { useProfileStore } from '../store/profile'
 import { usePlanStore } from '../store/plan'
 
@@ -91,6 +91,17 @@ export function RecommendPage() {
 
   const items = recommendation.data?.data.items ?? []
   const stats: RecommendStats | null = recommendation.data?.data.stats ?? null
+
+  /**
+   * "意向地区"选项：优先用后端给的候选池实际分布（ADR-017），
+   * 请求还没回来时用六省市兜底（`count` 显示为 `null` 时不显示数字）。
+   */
+  const regionOptions = useMemo<[string, number | null][]>(() => {
+    const fromStats = stats?.region_options ?? {}
+    const entries = Object.entries(fromStats)
+    if (entries.length > 0) return entries
+    return Object.keys(PROVINCE_LABEL).map((region) => [region, null])
+  }, [stats])
 
   const grouped = useMemo(() => {
     const map = new Map<Tier, RecommendItem[]>()
@@ -185,14 +196,21 @@ export function RecommendPage() {
         <div className="mt-4 grid gap-4 lg:grid-cols-3">
           <section>
             <h3 className="text-sm font-semibold text-slate-800">意向地区（院校所在省）</h3>
+            {/*
+              选项来自后端 `stats.region_options`（候选池里院校所在地的实际分布，ADR-017）：
+              规则包只有六省市，但浙江考生的候选池覆盖 31 个省级行政区，
+              只列六省市会让考生想选"江苏/湖北"时无处可选。
+              首次请求返回前先用六省市兜底，避免筛选区空白。
+            */}
             <div className="mt-2 flex flex-wrap gap-2">
-              {Object.keys(PROVINCE_LABEL).map((region) => {
+              {regionOptions.map(([region, count]) => {
                 const picked = regions.includes(region)
                 return (
                   <button
                     key={region}
                     type="button"
                     aria-pressed={picked}
+                    title={`候选池中 ${count} 个单位`}
                     className={[
                       'rounded-lg border px-3 py-1 text-sm',
                       picked ? 'border-sky-500 bg-sky-600 text-white' : 'border-slate-200 bg-white text-slate-700',
@@ -201,7 +219,12 @@ export function RecommendPage() {
                       setRegions(picked ? regions.filter((item) => item !== region) : [...regions, region])
                     }
                   >
-                    {provinceLabel(region)}
+                    {regionLabel(region)}
+                    {count !== null && (
+                      <span className={picked ? 'ml-1 text-xs text-sky-100' : 'ml-1 text-xs text-slate-400'}>
+                        {count}
+                      </span>
+                    )}
                   </button>
                 )
               })}
@@ -214,6 +237,10 @@ export function RecommendPage() {
               />
               把意向地区/层次/门类当作**硬约束**（直接过滤掉，而不只是降权）
             </label>
+            <p className="mt-1 text-xs text-slate-500">
+              不勾选 = **软偏好**：只影响排序，不会剔除任何院校；勾选 = 直接过滤。
+              院校所在地缺失的院校不会被硬约束剔除（不知道就不能否决）。
+            </p>
           </section>
 
           <section>

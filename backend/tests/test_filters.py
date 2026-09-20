@@ -12,6 +12,7 @@ from app.core.filters import (
     PHYSICAL_LIMIT,
     POLITICAL_LIMIT,
     PROVINCE_MISMATCH,
+    REGION_NOT_INTENDED,
     SINGLE_SUBJECT_LIMIT,
     SINGLE_SUBJECT_UNKNOWN,
     SUBJECT_NOT_MATCHED,
@@ -164,6 +165,78 @@ def test_intent_as_hard_optional() -> None:
         )
         is None
     )
+
+
+def test_region_hard_filter_uses_college_province_not_unit_prefix() -> None:
+    """★ 回归（ADR-017 缺陷 1）：地区硬约束必须看**院校所在地**，不能看 unit_id 前缀。
+
+    原实现用 ``unit.college_id.split("-", 1)[0]``，而 unit_id 是 ``{招生省}-{年份}-…``，
+    所以它永远是**招生省**（浙江考生 = "zhejiang"）——勾选任何地区都会把全部单位剔光
+    （实测 18,543 个全被剔，前端显示"没有符合条件的推荐"）。
+    """
+    unit = make_unit()  # 招生省 zhejiang
+    student = make_student()  # 考生在浙江
+    # 院校在浙江 → 意向浙江应通过
+    assert (
+        check_unit(
+            unit,
+            student,
+            criteria=FilterCriteria(regions=["zhejiang"]),
+            college_province="zhejiang",
+            intent_as_hard=True,
+        )
+        is None
+    )
+    # 院校在北京 → 意向浙江应被剔
+    reason = check_unit(
+        unit,
+        student,
+        criteria=FilterCriteria(regions=["zhejiang"]),
+        college_province="beijing",
+        intent_as_hard=True,
+    )
+    assert reason is not None and reason.rule_code == REGION_NOT_INTENDED
+    # 反向：意向北京 + 院校在北京 → 通过（原实现下这也会被剔光）
+    assert (
+        check_unit(
+            unit,
+            student,
+            criteria=FilterCriteria(regions=["beijing"]),
+            college_province="beijing",
+            intent_as_hard=True,
+        )
+        is None
+    )
+
+
+def test_region_hard_filter_keeps_units_with_unknown_college_province() -> None:
+    """院校所在地缺失时**不得**因硬约束被剔除：硬约束是"一票否决"，
+    不知道就不能否决（真实数据里有 892 所院校没有所在地字段）。"""
+    assert (
+        check_unit(
+            make_unit(),
+            make_student(),
+            criteria=FilterCriteria(regions=["beijing"]),
+            college_province=None,
+            intent_as_hard=True,
+        )
+        is None
+    )
+
+
+def test_filter_units_accepts_college_province_map() -> None:
+    """批量过滤接口要能把"院校所在地"传进来（否则地区硬约束无法工作）。"""
+    units = [make_unit(college="6001"), make_unit(college="6002")]
+    result = filter_units(
+        units,
+        make_student(),
+        criteria=FilterCriteria(regions=["beijing"]),
+        college_province_by_college={"zhejiang-6001": "beijing", "zhejiang-6002": "shanghai"},
+        intent_as_hard=True,
+    )
+    assert len(result.passed) == 1
+    assert result.passed[0].college_id == "zhejiang-6001"
+    assert [reason.rule_code for reason in result.rejected] == [REGION_NOT_INTENDED]
 
 
 # ---------------------------------------------------------------------------

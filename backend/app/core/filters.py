@@ -104,6 +104,7 @@ def check_unit(
     criteria: FilterCriteria | None = None,
     major: Major | None = None,
     level_tags: Sequence[str] | None = None,
+    college_province: str | None = None,
     allowed_batches: Sequence[str] | None = None,
     intent_as_hard: bool = False,
 ) -> RejectionReason | None:
@@ -111,6 +112,15 @@ def check_unit(
 
     ``level_tags``：院校层次标签（来自 ``College.level_tags``）。仅当
     ``intent_as_hard=True`` 时用于层次过滤——单位本身不携带层次信息。
+
+    ``college_province``：**院校所在地**（来自 ``College.province``）。
+    同样只在 ``intent_as_hard=True`` 时用于地区过滤。
+
+    ★ M6 实测缺陷（ADR-017）：这里原先写的是
+    ``unit.college_id.split("-", 1)[0]`` —— 那取到的是 **unit_id 的第一段**，
+    而 unit_id 是 ``{招生省}-{年份}-…``，所以它永远是**招生省**（浙江考生 = "zhejiang"）。
+    后果：只要勾选"把意向地区当硬约束"，**任何地区**（哪怕就是"浙江"）都会把全部
+    18,543 个单位剔光，前端显示"没有符合条件的推荐"。地区必须取院校自己的所在地。
     """
     criteria = criteria or FilterCriteria()
 
@@ -234,13 +244,22 @@ def check_unit(
 
     # 可选：把意向范围当硬约束（默认关闭；意向属软偏好 §6.5）
     if intent_as_hard:
-        college_province = unit.college_id.split("-", 1)[0]
-        if criteria.regions and college_province not in criteria.regions:
-            return RejectionReason(
-                unit_id=unit.unit_id,
-                rule_code=REGION_NOT_INTENDED,
-                message=f"院校所在省 {college_province} 不在意向地区内",
-            )
+        # ★ 用**院校所在地**（college_province）判定，不能用 unit_id 的第一段（那是招生省）
+        if criteria.regions:
+            if college_province is None:
+                # 院校所在地缺失 → 无法判定是否在意向地区内。
+                # 硬约束是"一票否决"，**不知道就不能否决**（否则真实数据里 892 所
+                # 无所在地的院校会被无声剔除，考生以为"这些学校不存在"）。
+                pass
+            elif college_province not in criteria.regions:
+                return RejectionReason(
+                    unit_id=unit.unit_id,
+                    rule_code=REGION_NOT_INTENDED,
+                    message=(
+                        f"院校所在地 {college_province} 不在意向地区内"
+                        f"（意向：{'、'.join(criteria.regions)}）"
+                    ),
+                )
         if criteria.levels and not set(criteria.levels) & set(level_tags or ()):
             return RejectionReason(
                 unit_id=unit.unit_id,
@@ -263,12 +282,18 @@ def filter_units(
     criteria: FilterCriteria | None = None,
     majors: Mapping[str, Major] | None = None,
     level_tags_by_college: Mapping[str, Sequence[str]] | None = None,
+    college_province_by_college: Mapping[str, str | None] | None = None,
     allowed_batches: Sequence[str] | None = None,
     intent_as_hard: bool = False,
 ) -> FilterResult:
-    """批量过滤：返回 ``FilterResult{passed, rejected}``，剔除项**必须可解释**。"""
+    """批量过滤：返回 ``FilterResult{passed, rejected}``，剔除项**必须可解释**。
+
+    ``college_province_by_college``：``college_id -> 院校所在地``（来自 ``College.province``），
+    仅 ``intent_as_hard=True`` 时用于地区硬约束（见 :func:`check_unit` 的勘误说明）。
+    """
     majors = majors or {}
     tags_map = level_tags_by_college or {}
+    province_map = college_province_by_college or {}
     result = FilterResult()
     for unit in units:
         reason = check_unit(
@@ -277,6 +302,7 @@ def filter_units(
             criteria=criteria,
             major=majors.get(unit.major_id or ""),
             level_tags=tags_map.get(unit.college_id, ()),
+            college_province=province_map.get(unit.college_id),
             allowed_batches=allowed_batches,
             intent_as_hard=intent_as_hard,
         )

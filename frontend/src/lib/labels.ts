@@ -162,6 +162,50 @@ export const PROVINCE_LABEL: Record<string, string> = {
   hainan: '海南',
 }
 
+/**
+ * 院校所在地中文名（ADR-017）。
+ *
+ * 为什么需要它：**规则包只有六省市，但考生的候选池覆盖全国**——
+ * 浙江考生能报的院校分布在 31 个省级行政区（江苏 1,549 个单位、湖北 943 个…）。
+ * 推荐页的"意向地区"如果只列六省市，考生想选"江苏"就选不到；
+ * 后端因此在 `/recommend` 的 `stats.region_options` 里回传候选池的实际分布，
+ * 这里只负责把省代码显示成中文。
+ */
+export const REGION_LABEL: Record<string, string> = {
+  ...PROVINCE_LABEL,
+  hebei: '河北',
+  shanxi: '山西',
+  neimenggu: '内蒙古',
+  liaoning: '辽宁',
+  jilin: '吉林',
+  heilongjiang: '黑龙江',
+  jiangsu: '江苏',
+  anhui: '安徽',
+  fujian: '福建',
+  jiangxi: '江西',
+  henan: '河南',
+  hubei: '湖北',
+  hunan: '湖南',
+  guangdong: '广东',
+  guangxi: '广西',
+  chongqing: '重庆',
+  sichuan: '四川',
+  guizhou: '贵州',
+  yunnan: '云南',
+  xizang: '西藏',
+  shaanxi: '陕西',
+  gansu: '甘肃',
+  qinghai: '青海',
+  ningxia: '宁夏',
+  xinjiang: '新疆',
+}
+
+/** 地区名（找不到时原样回显代码，不编造）。 */
+export function regionLabel(code: string | null | undefined): string {
+  if (!code) return '—'
+  return REGION_LABEL[code] ?? code
+}
+
 export function provinceLabel(code: string | null | undefined): string {
   if (!code) return '—'
   return PROVINCE_LABEL[code] ?? code

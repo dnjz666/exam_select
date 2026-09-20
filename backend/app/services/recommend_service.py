@@ -87,9 +87,27 @@ class RecommendOutcome:
     evidence: list[dict] = field(default_factory=list)
 
 
-def _with_weights(profile: StudentProfile, weights: dict | None) -> Preferences:
-    """把请求里的权重覆盖到考生偏好上（未提供的维度保持原值）。"""
+def _with_weights(
+    profile: StudentProfile,
+    weights: dict | None,
+    criteria: FilterCriteria | None = None,
+) -> Preferences:
+    """把请求里的权重与**意向筛选**合并进考生偏好。
+
+    ★ M6 实测缺陷（ADR-017）：原先只覆盖 ``weights``，``criteria.regions`` /
+    ``criteria.major_categories`` **完全不参与打分**。后果是推荐页的筛选面板
+    "不勾硬约束时形同虚设"——勾了"意向地区=浙江"，列表顺序与效用值一模一样
+    （因为 ``region_score`` 读的是 ``preferences.intended_regions``，而它一直是空的）。
+    现在把两者合并：建档向导里填的意向（档案级）与推荐页勾的意向（本次查询级）取并集。
+    """
     prefs = profile.preferences.model_copy(deep=True)
+    if criteria is not None:
+        if criteria.regions:
+            prefs.intended_regions = sorted({*prefs.intended_regions, *criteria.regions})
+        if criteria.major_categories:
+            prefs.intended_major_categories = sorted(
+                {*prefs.intended_major_categories, *criteria.major_categories}
+            )
     if not weights:
         return prefs
     mapping = {
@@ -133,6 +151,9 @@ def evaluate_candidates(
     stats = repo.get_province_stats(session, profile.province)
     total_current = stats.get(profile.year)
     level_tags_by_college = {cid: tuple(c.level_tags) for cid, c in colleges.items()}
+    # ★ 地区硬约束必须用**院校所在地**（College.province），不能用 unit_id 的第一段
+    #   （那是招生省；ADR-017 勘误）
+    college_province_by_college = {cid: c.province for cid, c in colleges.items()}
 
     filtered = filter_units(
         units,
@@ -140,10 +161,11 @@ def evaluate_candidates(
         criteria=criteria,
         majors=majors,
         level_tags_by_college=level_tags_by_college,
+        college_province_by_college=college_province_by_college,
         allowed_batches=allowed_batches or [batch.batch_code],
         intent_as_hard=intent_as_hard,
     )
-    preferences = _with_weights(profile, weights)
+    preferences = _with_weights(profile, weights, criteria)
 
     bundle = EvaluationBundle(
         profile=profile,
@@ -336,6 +358,15 @@ def recommend(
     for item in outcome.items:
         returned_counts[item["tier"]] = returned_counts.get(item["tier"], 0) + 1
 
+    # 候选池的院校所在地分布（供前端"意向地区"筛选器生成选项，ADR-017）。
+    # 按数量降序；所在地缺失的院校不列入（否则会出现一个没有意义的空选项）。
+    region_options: dict[str, int] = {}
+    for unit in bundle.filtered.passed:
+        college = bundle.colleges.get(unit.college_id)
+        province = college.province if college else None
+        if province:
+            region_options[province] = region_options.get(province, 0) + 1
+
     outcome.stats = {
         "units_considered": len(bundle.filtered.passed) + len(bundle.filtered.rejected),
         "hard_filtered_out": len(bundle.filtered.rejected),
@@ -350,6 +381,9 @@ def recommend(
         "limit": limit,
         "include_too_risky": include_too_risky,
         "rule": rule_block(bundle.batch, bundle.rule),
+        "region_options": dict(
+            sorted(region_options.items(), key=lambda kv: (-kv[1], kv[0]))
+        ),
     }
 
     warnings: list[str] = list(rule_warnings(bundle.batch))

@@ -262,6 +262,10 @@ class RecommendStats(BaseModel):
     limit: int = DEFAULT_LIMIT
     include_too_risky: bool = False
     rule: RuleBlock | None = None
+    #: 候选池里**院校所在地**的分布（ADR-017）：供推荐页"意向地区"筛选器生成选项。
+    #: 为什么由后端给：前端若只列六省市，考生想选"江苏/湖北"就选不到，
+    #: 而浙江考生的候选池覆盖 31 个省级行政区（江苏 1,567 个单位、湖北 957 个…）。
+    region_options: dict[str, int] = Field(default_factory=dict)
 
 
 class RecommendPayload(BaseModel):
