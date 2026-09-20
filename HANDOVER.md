@@ -75,6 +75,7 @@
 | 测试前置 | `pytest backend/tests` 依赖**已播种**的数据库；未播种会明确失败（不静默跳过） |
 | **`seed.py --reset` 的连带影响** | 它会让**所有浏览器里已保存的草稿 id 失效**（localStorage 的 `exam-select.profile-draft`）。前端已做自愈（PATCH 404 → 自动重新建档，ADR-015 缺陷 7）；若在推荐页/志愿表页直接刷新看到 404，**回建档向导走一步**即可恢复 |
 | **进程内缓存**（ADR-016） | L2 缓存静态参考数据（院校/专业/单位/历史）、L3 缓存概率结果。写库后由 `get_db` 自动 `bump_generation()` 失效；测试/排错可调 `repositories.disable_cache()` 或 `probability.clear_result_cache()`。**改模型参数或直接改库（绕过 API）后必须清缓存**，否则会读到旧结论 |
+| **地区筛选（ADR-017）** | "意向地区"取的是**院校所在地**（`College.province`），不是招生省；选项来自 `/recommend` 的 `stats.region_options`（动态，覆盖 31 个省级行政区）。**院校所在地缺失的院校不会被地区硬约束剔除**（不知道就不能否决） |
 | PowerShell 坑 | **不要用 `curl.exe -d '{"json"}'` 发 POST**（双引号被吃 → 422）；用 `Invoke-RestMethod` + `ConvertTo-Json` |
 | 终端中文 | 先 `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8` |
 | `debug.log` | 根目录若出现，是 DSH Desktop 的 Electron crashpad 日志，非项目产物（已 gitignore） |
@@ -238,6 +239,9 @@ L1 backend/app/etl/**  synthetic.py（确定性模拟，seed 固定）
 - **对话式建档只写可增量字段**；省份不会被一句话覆盖（这是刻意的安全设计）。
 - 前端无浏览器 E2E / 视觉回归；`pnpm smoke` 证明契约与数据流，不证明像素。
 - 意向地区/门类的权重滑块与后端 `weights` 参数尚未联动（只影响排序，不影响概率）。
+  ✅ **已修（ADR-017）**：推荐页勾的意向现在会合并进软偏好打分；"意向地区"选项也从
+  `/recommend` 的 `stats.region_options` 动态生成（覆盖候选池全部 31 个省级行政区，
+  不再只有六省市）。仍未做的是**权重滑块**（`weights` 目前只有 API 层能传）。
 - 其余五省仍为**模拟数据**（规则包、科目池、覆盖率、规则展示、agent 查询六省都可用）。
 
 ---
