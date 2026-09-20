@@ -53,7 +53,7 @@ def now_iso() -> str:
 # * 进程内**代数号** ``_generation``：任何写库（建档 / 存志愿表 / 追加对话）都会自增，
 #   缓存键带上它，写后自然失效（``bump_generation`` 由 L4 在写事务提交后调用）；
 # * 进程重启自然清空；
-# * ``EXAM_SELECT_DISABLE_CACHE=1`` 可整体关掉（排错用）。
+# * 测试与排错可用 ``disable_cache()`` 整体关掉（见 ``tests/test_loaders_zhejiang.py`` 的用法）。
 # ---------------------------------------------------------------------------
 _CACHE_ENABLED = True  # 由 disable_cache() 关闭（测试与排错用）
 _CACHE_MAX_ENTRIES = 32
