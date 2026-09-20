@@ -48,6 +48,9 @@ backtest_report.md
 # ---------- 工具副产物 ----------
 # DSH Desktop (Electron crashpad) 会往工作区根目录写这个文件，非项目产物
 debug.log
+# agent/开发过程中的临时脚本与日志（`_prof.py` / `_commit_msg.txt` / `_pytest.log` …）
+# ★ 实测踩到过：`git add -A` 把提交信息文件也一起提交了
+backend/_*
 
 # ---------- 编辑器 / 系统 ----------
 .vscode/

@@ -27,6 +27,7 @@ from app.core.probability import (
     W_VOLATILE_HISTORY,
     AnalogUnit,
     build_analog_index,
+    clear_result_cache,
     estimate_probability,
     probability_interval,
 )
@@ -39,6 +40,20 @@ PARAMS = ModelParams()
 UNIT = make_unit()  # 2026 年视图
 KEY = "zhejiang-1001-NA-100111"
 STANDARD_RANKS = {2025: 9000, 2024: 9500, 2023: 9200}  # 对应 G-001
+
+
+@pytest.fixture(autouse=True)
+def _fresh_probability_cache():
+    """每个用例前后清空概率结果缓存。
+
+    ``estimate_probability`` 带进程内结果缓存（M6/ADR-016 的性能措施）。测试里每个用例都会
+    **新建** history / analog_pool 列表，而 CPython 会复用已回收对象的 ``id`` ——
+    不清空就可能命中上一个用例的结论（实测：4 个用例因 id 复用而误命中）。
+    生产路径不受影响（``load_history`` 是按省缓存的同一个对象）。
+    """
+    clear_result_cache()
+    yield
+    clear_result_cache()
 
 
 def _estimate(ranks: dict[int, int | None] | None = None, *, rank: int | None = 9000, **kwargs):

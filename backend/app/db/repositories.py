@@ -11,8 +11,9 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime, timezone
+from typing import TypeVar
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -38,6 +39,56 @@ from app.etl.synthetic import CURRENT_YEAR
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+# ---------------------------------------------------------------------------
+# 静态参考数据缓存（M6 / ADR-016）
+#
+# 为什么需要：M6 接入浙江真实数据后，一次推荐要读 18,543 个投档单位 + 38,957 条历史，
+# 每次请求都把 SQLAlchemy 行重新组装成 Pydantic 模型（实测每次约 2 秒、构造 7.8 万个对象）。
+# 但这些数据**在两次播种之间是只读的**，而一次会话里推荐接口会被反复调用
+# （推荐页 → 志愿表生成 → 手改重算 → 风险扫描）。
+#
+# 失效策略（宁可多失效一次，也不要读到旧数据）：
+# * 进程内**代数号** ``_generation``：任何写库（建档 / 存志愿表 / 追加对话）都会自增，
+#   缓存键带上它，写后自然失效（``bump_generation`` 由 L4 在写事务提交后调用）；
+# * 进程重启自然清空；
+# * ``EXAM_SELECT_DISABLE_CACHE=1`` 可整体关掉（排错用）。
+# ---------------------------------------------------------------------------
+_CACHE_ENABLED = True  # 由 disable_cache() 关闭（测试与排错用）
+_CACHE_MAX_ENTRIES = 32
+_cache: dict[tuple, object] = {}
+_generation = 0
+T = TypeVar("T")
+
+
+def bump_generation() -> int:
+    """写库后调用：让所有静态参考数据缓存失效。返回新的代数号。"""
+    global _generation
+    _generation += 1
+    _cache.clear()
+    return _generation
+
+
+def disable_cache() -> None:
+    """关闭静态数据缓存（测试里需要"每次都真读库"时用）。"""
+    global _CACHE_ENABLED
+    _CACHE_ENABLED = False
+    _cache.clear()
+
+
+def _cached(key: tuple, build: Callable[[], T]) -> T:
+    if not _CACHE_ENABLED:
+        return build()
+    cache_key = (*key, _generation)
+    hit = _cache.get(cache_key)
+    if hit is not None:
+        return hit  # type: ignore[return-value]
+    value = build()
+    if len(_cache) >= _CACHE_MAX_ENTRIES:
+        _cache.clear()
+    _cache[cache_key] = value
+    return value
 
 
 # ---------------------------------------------------------------------------
@@ -101,41 +152,47 @@ def get_rank_source_url(session: Session, province: str, year: int, track: str =
 
 
 def load_colleges(session: Session) -> dict[str, College]:
-    return {
-        row.id: College(
-            id=row.id,
-            code=row.code,
-            name=row.name,
-            province=row.province,
-            city=row.city,
-            level_tags=json.loads(row.level_tags or "[]"),
-            college_type=row.college_type,
-            affiliation=row.affiliation,
-            is_public=bool(row.is_public),
-            postgrad_rate=row.postgrad_rate,
-            master_points=row.master_points,
-            doctor_points=row.doctor_points,
-            source_url=row.source_url,
-        )
-        for row in session.execute(select(db.College)).scalars()
-    }
+    def build() -> dict[str, College]:
+        return {
+            row.id: College(
+                id=row.id,
+                code=row.code,
+                name=row.name,
+                province=row.province,
+                city=row.city,
+                level_tags=json.loads(row.level_tags or "[]"),
+                college_type=row.college_type,
+                affiliation=row.affiliation,
+                is_public=bool(row.is_public),
+                postgrad_rate=row.postgrad_rate,
+                master_points=row.master_points,
+                doctor_points=row.doctor_points,
+                source_url=row.source_url,
+            )
+            for row in session.execute(select(db.College)).scalars()
+        }
+
+    return _cached(("colleges",), build)
 
 
 def load_majors(session: Session) -> dict[str, Major]:
-    return {
-        row.id: Major(
-            id=row.id,
-            code=row.code,
-            name=row.name,
-            category=row.category,
-            discipline=row.discipline,
-            degree=row.degree,
-            duration=row.duration,
-            subject_eval_grade=row.subject_eval_grade,
-            source_url=row.source_url,
-        )
-        for row in session.execute(select(db.Major)).scalars()
-    }
+    def build() -> dict[str, Major]:
+        return {
+            row.id: Major(
+                id=row.id,
+                code=row.code,
+                name=row.name,
+                category=row.category,
+                discipline=row.discipline,
+                degree=row.degree,
+                duration=row.duration,
+                subject_eval_grade=row.subject_eval_grade,
+                source_url=row.source_url,
+            )
+            for row in session.execute(select(db.Major)).scalars()
+        }
+
+    return _cached(("majors",), build)
 
 
 def to_unit(row: db.AdmissionUnitRow, *, year: int, plan_count: int) -> AdmissionUnit:
@@ -194,7 +251,19 @@ def load_units(
     并用 ``admission_plans`` 里目标年的计划数重建（与原实现一致）。
 
     ``plan_year`` 显式传入时，无论如何都用 ``admission_plans`` 里该年的计划数覆盖。
+
+    ★ 结果按 ``(province, year, plan_year)`` 缓存（ADR-016）：单位表在一次会话里只读，
+    而推荐/志愿表/风险扫描会反复要它。
     """
+    return _cached(
+        ("units", province, year, plan_year),
+        lambda: _load_units_uncached(session, province, year, plan_year=plan_year),
+    )
+
+
+def _load_units_uncached(
+    session: Session, province: str, year: int, *, plan_year: int | None = None
+) -> list[AdmissionUnit]:
     plan_counts: dict[str, int] = {}
     if plan_year is not None:
         plan_counts = {
@@ -233,12 +302,24 @@ def load_units(
 
 
 def load_history(session: Session, province: str) -> dict[str, list[AdmissionRecord]]:
-    history: dict[str, list[AdmissionRecord]] = {}
-    for row in session.execute(
-        select(db.AdmissionHistory).where(db.AdmissionHistory.province == province)
-    ).scalars():
-        history.setdefault(row.unit_key, []).append(to_record(row))
-    return history
+    """该省全部历史行，按 ``unit_key`` 分组（组内按年份从新到旧排序）。
+
+    ★ 结果按省缓存（ADR-016）：这是推荐路径上最贵的一次读取（浙江 38,957 行、
+    每次都要重新构造 Pydantic 对象，实测 1.3 秒）。**顺带在这里排好序**——
+    概率模型要求"从新到旧"，原先由 ``usable_records`` 每次现排，现在只排一次。
+    """
+
+    def build() -> dict[str, list[AdmissionRecord]]:
+        history: dict[str, list[AdmissionRecord]] = {}
+        for row in session.execute(
+            select(db.AdmissionHistory).where(db.AdmissionHistory.province == province)
+        ).scalars():
+            history.setdefault(row.unit_key, []).append(to_record(row))
+        for records in history.values():
+            records.sort(key=lambda record: -record.year)
+        return history
+
+    return _cached(("history", province), build)
 
 
 def load_actual_min_rank(session: Session, province: str, year: int) -> dict[str, int]:
