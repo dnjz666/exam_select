@@ -351,6 +351,19 @@ class ScoreBreakdown(BaseModel):
     city_score: float = 0.0
     misc_score: float = 0.0
 
+    # ---- 专业匹配的**可追溯字段**（ADR-018 四级专业分类）
+    #: 命中的匹配层级：EXACT_MAJOR / SAME_DISCIPLINE / SAME_CATEGORY /
+    #: RELATED_CATEGORY / NONE / NO_INTENT。让"为什么这个分"可解释。
+    major_match_level: str | None = None
+    #: 该投档单位专业的**专业类**（L2）与**门类**（L1），来源见 core/major_taxonomy
+    major_discipline: str | None = None
+    major_category: str | None = None
+    #: **招生方向**（L4）：括号内原文，如"中外合作办学"、"基础拔尖基地班"
+    admission_direction: str | None = None
+    #: 招生方向类型：SINO_FOREIGN / EXCELLENCE / TOP_TALENT / DOUBLE_DEGREE /
+    #: NORMAL / ORIENTED / CAMPUS / TRAINING_CLASS / MAJOR_DIRECTION
+    direction_kind: str | None = None
+
 
 class ScoredUnit(BaseModel):
     """已过滤 + 已算概率 + 已打分的候选（planner 的输入）。"""

@@ -9,6 +9,7 @@ from app.core.scoring import (
     CITY_TIERS,
     city_score,
     level_score,
+    major_match_detail,
     major_match_score,
     misc_score,
     normalize_weights,
@@ -59,7 +60,53 @@ def test_major_match_levels() -> None:
     assert major_match_score(["理学"], major=major) == 0.30  # 相关门类
     assert major_match_score(["医学"], major=major) == 0.00
     assert major_match_score([], major=major) == 1.00  # 未填意向 = 不限制
-    assert major_match_score(["计算机类"], major=None, major_name="软件工程") == 0.00
+
+
+def test_major_match_falls_back_to_taxonomy_without_major_row() -> None:
+    """★ ADR-018：``major`` 行为空时，仍应能从**专业名**推出专业类并匹配。
+
+    原实现要求调用方先查出 ``Major`` 行且该行的 ``category``/``discipline`` 非空；
+    浙江真实数据的这两列曾是 NULL，于是"同一专业类/同一门类"两档**永不命中**。
+    现在改为纯函数分类兜底 —— 这条用例守住该能力。
+    """
+    # 无 Major 行，只有专业名 → 专业类仍可推出
+    assert major_match_score(["计算机类"], major=None, major_name="软件工程") == 0.80
+    assert major_match_score(["工学"], major=None, major_name="软件工程") == 0.55
+    assert major_match_score(["文学"], major=None, major_name="软件工程") == 0.00
+    # 带招生方向的专业名：方向被剥离后再匹配（"基础拔尖基地班"不是专业名）
+    assert (
+        major_match_score(
+            ["计算机科学与技术"], major=None, major_name="计算机科学与技术(基础拔尖基地班)"
+        )
+        == 1.00
+    )
+    assert (
+        major_match_score(
+            ["计算机类"], major=None, major_name="计算机科学与技术(基础拔尖基地班)"
+        )
+        == 0.80
+    )
+    # 无法归类的名字**不猜**（宁可不答）
+    assert major_match_score(["计算机类"], major=None, major_name="不存在专业XYZ") == 0.00
+
+
+def test_major_match_ignores_direction_words_as_intent() -> None:
+    """意向里误填"中外合作办学"这类**方向词**时，不应把专业判成不匹配。
+
+    方向词是筛选条件（filters.py 的职责），不是专业意向。
+    """
+    assert major_match_score(["中外合作办学"], major=None, major_name="软件工程") == 1.00
+    assert major_match_score(["中外合作办学"], major=None, major_name="法学") == 1.00
+
+
+def test_major_match_detail_reports_level() -> None:
+    """每个分数必须能追溯到具体规则（DOMAIN_RULES §5）。"""
+    assert major_match_detail(["计算机类"], major_name="软件工程") == (0.80, "SAME_DISCIPLINE")
+    assert major_match_detail(["工学"], major_name="软件工程") == (0.55, "SAME_CATEGORY")
+    assert major_match_detail(["理学"], major_name="软件工程") == (0.30, "RELATED_CATEGORY")
+    assert major_match_detail(["医学"], major_name="软件工程") == (0.00, "NONE")
+    assert major_match_detail([], major_name="软件工程") == (1.00, "NO_INTENT")
+    assert major_match_detail(["软件工程"], major_name="软件工程") == (1.00, "EXACT_MAJOR")
 
 
 def test_region_and_city_scores() -> None:

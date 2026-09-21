@@ -12,6 +12,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
+from app.core.major_taxonomy import (
+    DIRECTION_KIND_LABELS,
+    MajorTaxonomy,
+    split_direction,
+    taxonomy_from_stored,
+)
 from app.core.models import (
     AdmissionUnit,
     College,
@@ -42,6 +48,14 @@ MAJOR_MATCH_DISCIPLINE = 0.80
 MAJOR_MATCH_CATEGORY = 0.55
 MAJOR_MATCH_RELATED = 0.30
 MAJOR_MATCH_NONE = 0.00
+
+#: 匹配层级标签（★ 每个分数都要能追溯到具体规则，DOMAIN_RULES §5）
+MATCH_LEVEL_NO_INTENT = "NO_INTENT"
+MATCH_LEVEL_EXACT = "EXACT_MAJOR"
+MATCH_LEVEL_DISCIPLINE = "SAME_DISCIPLINE"
+MATCH_LEVEL_CATEGORY = "SAME_CATEGORY"
+MATCH_LEVEL_RELATED = "RELATED_CATEGORY"
+MATCH_LEVEL_NONE = "NONE"
 
 #: 门类相关映射（"相关门类"判据，DOMAIN_RULES.md §5.2）
 RELATED_CATEGORY_MAP: dict[str, tuple[str, ...]] = {
@@ -124,32 +138,88 @@ def level_score(
     return LEVEL_SCORE_PUBLIC
 
 
+def resolve_major_taxonomy(
+    major: Major | None = None, major_name: str = ""
+) -> MajorTaxonomy:
+    """取某专业的四级分类：**库里已回填的优先**，缺失时用分类器兜底（不写库）。
+
+    ★ M6 实测缺陷（ADR-018）：浙江真实数据的 ``majors.category/discipline`` 原先是
+    ``NULL``，导致下面 :func:`major_match_score` 的三档专业匹配**永不命中**。
+    现在装载器已回填；本函数仍保留兜底，因为模拟数据与历史行也可能缺失。
+    """
+    name = major_name or (major.name if major else "")
+    return taxonomy_from_stored(
+        name,
+        major.category if major else None,
+        major.discipline if major else None,
+    )
+
+
+def major_match_detail(
+    intended: Sequence[str],
+    *,
+    major: Major | None = None,
+    major_name: str = "",
+) -> tuple[float, str]:
+    """专业匹配得分 + **匹配层级标签**（四级模型，ADR-018）。
+
+    ``intended`` 可混合填写 **专业名 / 专业类 / 门类**（考生不必知道自己在填哪一级）。
+    判定顺序（先命中先返回）：
+
+    ==================  ======  ==========================================
+    层级                 得分    含义
+    ==================  ======  ==========================================
+    ``EXACT_MAJOR``      1.00    意向里有该专业名（含去方向后的基名）
+    ``SAME_DISCIPLINE``  0.80    同一**专业类**（如都在"计算机类"内）
+    ``SAME_CATEGORY``    0.55    同一**学科门类**（如都在"工学"内）
+    ``RELATED_CATEGORY`` 0.30    相关门类（``RELATED_CATEGORY_MAP``）
+    ``NONE``             0.00    不在意向范围
+    ==================  ======  ==========================================
+
+    **未填写意向 → 1.00 / ``NO_INTENT``**（"不限制"≠"全都不匹配"，不加惩罚）。
+
+    ★ 容错：意向里若混入了"中外合作办学""卓越工程师"这类**招生方向词**，会被忽略 ——
+    它们是筛选条件（``filters.py`` 的职责），不该在这里把专业判成不匹配。
+    """
+    if not intended:
+        return MAJOR_MATCH_EXACT, MATCH_LEVEL_NO_INTENT
+
+    # 剔除误填的方向词；若剔除后为空，视为"没填有效意向"
+    wanted = [
+        w for w in intended if w and w not in DIRECTION_KIND_LABELS
+    ]
+    if not wanted:
+        return MAJOR_MATCH_EXACT, MATCH_LEVEL_NO_INTENT
+
+    name = major_name or (major.name if major else "")
+
+    # ① 专业名精确匹配（原文 或 去招生方向后的基名）
+    if name and name in wanted:
+        return MAJOR_MATCH_EXACT, MATCH_LEVEL_EXACT
+    base, _direction = split_direction(name)
+    if base and base != name and base in wanted:
+        return MAJOR_MATCH_EXACT, MATCH_LEVEL_EXACT
+
+    # ②③④ 专业类 → 门类 → 相关门类
+    taxonomy = resolve_major_taxonomy(major, major_name)
+    if taxonomy.discipline and taxonomy.discipline in wanted:
+        return MAJOR_MATCH_DISCIPLINE, MATCH_LEVEL_DISCIPLINE
+    if taxonomy.category and taxonomy.category in wanted:
+        return MAJOR_MATCH_CATEGORY, MATCH_LEVEL_CATEGORY
+    related = RELATED_CATEGORY_MAP.get(taxonomy.category or "", ())
+    if any(category in wanted for category in related):
+        return MAJOR_MATCH_RELATED, MATCH_LEVEL_RELATED
+    return MAJOR_MATCH_NONE, MATCH_LEVEL_NONE
+
+
 def major_match_score(
     intended: Sequence[str],
     *,
     major: Major | None = None,
     major_name: str = "",
 ) -> float:
-    """专业匹配得分（DOMAIN_RULES.md §5.2）。
-
-    ``intended`` 可混合填写：专业名 / 专业类 / 门类。
-    **未填写意向 → 1.00（不限制，不加惩罚）**，避免"没填偏好"被当成"全都不匹配"。
-    """
-    if not intended:
-        return MAJOR_MATCH_EXACT
-    wanted = [w for w in intended if w]
-    name = major_name or (major.name if major else "")
-    if name and name in wanted:
-        return MAJOR_MATCH_EXACT
-    if major is not None:
-        if major.discipline and major.discipline in wanted:
-            return MAJOR_MATCH_DISCIPLINE
-        if major.category and major.category in wanted:
-            return MAJOR_MATCH_CATEGORY
-        related = RELATED_CATEGORY_MAP.get(major.category or "", ())
-        if any(category in wanted for category in related):
-            return MAJOR_MATCH_RELATED
-    return MAJOR_MATCH_NONE
+    """专业匹配得分（DOMAIN_RULES.md §5.2）；层级细节见 :func:`major_match_detail`。"""
+    return major_match_detail(intended, major=major, major_name=major_name)[0]
 
 
 def region_score(intended_regions: Sequence[str], college_province: str | None) -> float:
@@ -249,6 +319,10 @@ def score_unit(
     """对一个投档单位打分，返回带 ``score_breakdown`` 的 :class:`ScoredUnit`。"""
     preferences = preferences or Preferences()
     tags = level_tags if level_tags is not None else (college.level_tags if college else ())
+    taxonomy = resolve_major_taxonomy(major, unit.major_name)
+    match_score, match_level = major_match_detail(
+        preferences.intended_major_categories, major=major, major_name=unit.major_name
+    )
 
     breakdown = ScoreBreakdown(
         region_score=region_score(
@@ -259,9 +333,12 @@ def score_unit(
             is_public=college.is_public if college else True,
             affiliation=college.affiliation if college else None,
         ),
-        major_match_score=major_match_score(
-            preferences.intended_major_categories, major=major, major_name=unit.major_name
-        ),
+        major_match_score=match_score,
+        major_match_level=match_level,
+        major_discipline=taxonomy.discipline,
+        major_category=taxonomy.category,
+        admission_direction=taxonomy.direction,
+        direction_kind=taxonomy.direction_kind,
         tuition_score=tuition_score(
             unit.tuition,
             budget_comfortable=preferences.budget_comfortable,
@@ -277,13 +354,21 @@ def score_unit(
 __all__ = [
     "CITY_TIERS",
     "CITY_TIER_SCORES",
+    "MATCH_LEVEL_CATEGORY",
+    "MATCH_LEVEL_DISCIPLINE",
+    "MATCH_LEVEL_EXACT",
+    "MATCH_LEVEL_NONE",
+    "MATCH_LEVEL_NO_INTENT",
+    "MATCH_LEVEL_RELATED",
     "RELATED_CATEGORY_MAP",
     "city_score",
     "level_score",
+    "major_match_detail",
     "major_match_score",
     "misc_score",
     "normalize_weights",
     "region_score",
+    "resolve_major_taxonomy",
     "score_unit",
     "tuition_score",
     "utility_of",

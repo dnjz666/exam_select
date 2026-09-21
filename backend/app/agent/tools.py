@@ -1,4 +1,4 @@
-﻿"""LLM 工具定义（AGENTS.md §9.1）—— **只读**，绝不写库。
+"""LLM 工具定义（AGENTS.md §9.1）—— **只读**，绝不写库。
 
 为什么工具层是防幻觉的地基
 -------------------------
@@ -377,10 +377,20 @@ def _estimate_probability(ctx: ToolContext, args: Mapping[str, Any]) -> ToolResu
         analog_pool=bucket,
     )
     if result.probability is None:
+        # ★ 契约铁律 2（AGENTS.md §7）：probability is None ⇔ confidence == NO_DATA
+        #   且 reasons 必须说明原因。原先这里只回 {"unit_id","probability","tier"}，
+        #   把解释塞进 warnings、**丢掉了 confidence 与 reasons** —— 违反契约。
+        #   NO_DATA 恰恰是最需要解释的情形（考生会问"为什么没有概率"），
+        #   因此改为与正常路径共用 _probability_block，保证字段完整。
         return ToolResult(
             name="estimate_probability",
             arguments=args,
-            data={"unit_id": unit_id, "probability": None, "tier": result.tier.value},
+            data={
+                "unit_id": unit_id,
+                "unit": _unit_block(unit, college.name if college else None),
+                "student_rank": profile.rank,
+                **_probability_block(result, ctx.params),
+            },
             warnings=[
                 "无可用历史数据，也不足以构造类比池 → 概率**不计算**（宁可不答，不可编造）。",
                 *result.warnings,

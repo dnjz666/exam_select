@@ -29,7 +29,23 @@
 | M4 | 前端（5 个页面 + 强类型契约） | ✅ 完成 |
 | M5 | Agent 层与防幻觉（12 个只读工具 + 护栏 + 对话式建档 + 会话落库） | ✅ 完成 |
 | **M6** | **真实数据接入（浙江 2023–2026；其余五省仍为模拟数据）** | ✅ **完成**（ADR-015） |
+| **M6.5** | **专业四级分类规则库 + 目录归属回填（用户实测报障）** | ✅ **完成**（ADR-018） |
 | M7 | 加固与交付 | ⬜ 下一轮 |
+
+### M6.5 交付了什么（一句话版）
+
+浙江真实数据的 `majors.category`/`discipline` 原先**全是 NULL**（官方投档表不发布专业目录归属），
+导致推荐页"意向专业"筛选**完全不生效**、概率 Step 0 的类比池**跨专业乱类比**
+（实测：拿 985 院校里任意专业类比"社会学"）。
+现新增**四级专业分类规则库**（门类 → 专业类 → 专业 → **招生方向**）：
+浙江 2026 的 18,543 个投档单位**门类级覆盖 99.84% / 专业类级 99.08%**；
+意向"计算机类"时的效用取值数从 3（同院校内恒定）提升到 **124**。
+
+**必读**：`docs/MAJOR_TAXONOMY.md`（规则库唯一权威说明）与 `docs/DECISIONS.md` **ADR-018**。
+
+> ★ **已有数据库不必重新播种**：跑 `scripts/backfill_major_taxonomy.py --apply`
+> 即可原地回填（幂等，**不碰考生档案/志愿表/对话**）。
+> 若看到"意向专业勾了没反应"，先确认这一步跑过。
 
 ### M6 交付了什么（一句话版）
 
@@ -102,6 +118,14 @@ $py = 'backend\.venv\Scripts\python.exe'
 & $py scripts\collect_zj_score_segment.py parse --year 2026   # → normalized CSV
 & $py scripts\collect_zj_scorelines.py build                  # 年度一段表 → CSV
 & $py scripts\parse_zj_compilation_pdf.py --year 2024         # 合编 PDF → CSV（含交叉校验）
+
+# 专业目录归属回填（ADR-018；已有数据库**不需要**重新播种）
+& $py scripts\dedupe_major_taxonomy.py                        # 重复键检测/消解（幂等）
+& $py scripts\build_major_taxonomy_data.py                    # JSON → Python 模块 + 守卫 + 不变量校验
+& $py scripts\backfill_major_taxonomy.py                      # 预演（只补空值）
+& $py scripts\backfill_major_taxonomy.py --apply              # 实际写库（幂等）
+& $py scripts\backfill_major_taxonomy.py --reclassify         # ★ 改了规则库后：重算已有行（看 diff）
+& $py scripts\backfill_major_taxonomy.py --reclassify --apply
 
 # 后端测试与覆盖率
 & $py -m pytest backend/tests -q --cov=app.core --cov-fail-under=90
@@ -204,6 +228,12 @@ L1 backend/app/etl/**  synthetic.py（确定性模拟，seed 固定）
    ⚠️ 改之前先读 ADR-016 的"必须记住的两条"（缓存键必须含目标计划数；不要用 `id()` 做键）。
 3. **推荐列表截断方式**（M6 手测发现）：`limit=8` 时返回的 8 条**全是"冲"**
    （候选按分层排序后取前 N）。展示层应按分层配额取样，别让用户以为"一个稳的都没有"。
+   ★ **ADR-018 后更值得优先修**：专业匹配生效后 utility 已真正分化（124 个取值），
+   此时"取前 N"会**系统性偏向高 utility 的"冲"档**，问题比之前更突出。
+4. **Step 0 类比池阶梯**（ADR-018 引入）：目录归属回填后，类比池从"任意专业"收紧为
+   "同专业类"，覆盖率 **−0.29pp**（15,333 → 15,281 可评估单位），换掉了跨专业编造。
+   可考虑加"**保持专业类不变、逐级放宽地区/层次**"的类比阶梯把覆盖率补回来——
+   **必须先用回测验证**（AGENTS.md §6.9），且绝不允许跨专业类兜底。
 4. 边界：0 志愿 / 超高分 / 超低分 / 全被过滤 / 一次对话内连续建档。
 5. 前端视觉回归：引入 Playwright（现在只有 `pnpm smoke` 的契约级验证，不能证明像素与交互）。
 6. 敏感度热力图（DOMAIN_RULES §3.1 待补）。
@@ -253,7 +283,12 @@ L1 backend/app/etl/**  synthetic.py（确定性模拟，seed 固定）
 | 施工总纲 / 每轮计划与验收命令 | `AGENTS.md` |
 | 投档规则、算法参数、经验规则库、黄金用例规范 | `docs/DOMAIN_RULES.md` |
 | 字段口径、时间轴、API 口径、`chat_messages`、**真实数据口径（§5bis）** | `docs/DATA_DICTIONARY.md` |
-| 全部决策与被否决方案、各轮验收记录 | `docs/DECISIONS.md`（ADR-001…ADR-015） |
+| **专业四级分类规则库（门类→专业类→专业→招生方向）** | `docs/MAJOR_TAXONOMY.md` |
+| **专业分类纯函数分类器** | `backend/app/core/major_taxonomy.py`（+ `major_taxonomy_data.py` + `tests/test_major_taxonomy.py`） |
+| **专业目录归属原地回填（不碰用户数据）** | `scripts/backfill_major_taxonomy.py`（`--reclassify` 用于规则改动后重算） |
+| **规则库 JSON 重复键检测/消解** | `scripts/dedupe_major_taxonomy.py`（详见 ADR-018 补充） |
+| 全部决策与被否决方案、各轮验收记录 | `docs/DECISIONS.md`（ADR-001…ADR-018） |
+| **M6.5 专业目录归属缺陷与四级规则库** | `docs/DECISIONS.md` **ADR-018** |
 | **M6 真实数据接入的设计、五个实测缺陷、性能复盘** | `docs/DECISIONS.md` **ADR-015** |
 | **真实数据适配器（浙江）** | `backend/app/etl/loaders/zhejiang.py`（+ `tests/test_loaders_zhejiang.py`） |
 | 官方数据采集/解析脚本 | `scripts/collect_zj_scorelines.py` · `parse_zj_compilation_pdf.py` · `collect_zj_score_segment.py` · `zjzs_fetch.py` · `package_zj_data.py` |

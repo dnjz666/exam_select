@@ -94,8 +94,14 @@
 | `colleges.id` | `f"{province}-{college_code}"` |
 | `level_tags` | JSON 数组文本：`["985","211","双一流"]`；`scoring.py` 的 `level_score` 依据（DOMAIN_RULES §5.1） |
 | `is_public` | 公办 = true；民办/独立学院学费须在卡片明示（名师铁律 10） |
-| `majors.category` / `discipline` | 门类 / 专业类；`major_match_score` 的匹配层级依据（DOMAIN_RULES §5.2） |
-| `subject_eval_grade` | 学科评估 A+/A/B+…；`misc_score` 输入 |
+| `majors.category` / `discipline` | 门类 / 专业类；`major_match_score` 的匹配层级依据（DOMAIN_RULES §5.2）。**真实数据的这两列由装载器回填**（ADR-018）：官方投档表不发布专业目录归属，原先写死 `None` 导致三档专业匹配永不命中。回填口径与覆盖度见 `docs/MAJOR_TAXONOMY.md` §6；定不出来的行**保持为空**（宁可不答） |
+| `subject_eval_grade` | 学科评估 A+/A/B+…；`misc_score` 输入。**真实数据仍为空**（官方投档表不发布） |
+| 招生方向（L4） | **不落库**：由 `core.major_taxonomy.classify_major()` 从专业名的括号后缀现算（纯函数）。落库等于同一事实存两份必然漂移。类型见 `docs/MAJOR_TAXONOMY.md` §1 |
+
+> ★ **四级专业分类**（门类 → 专业类 → 专业 → 招生方向）：规则库与判定优先级见
+> `docs/MAJOR_TAXONOMY.md`（ADR-018）。`ScoreBreakdown` 会回传
+> `major_match_level` / `major_category` / `major_discipline` /
+> `admission_direction` / `direction_kind`，供前端展示与"为什么这个分"追问。
 
 ### 2.3 `admission_units` —— 投档单位（当年）
 

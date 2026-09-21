@@ -152,13 +152,54 @@ def test_history_tool_reports_missing_history(ctx: ToolContext) -> None:
 
 
 def test_probability_tool_returns_interval_and_evidence(ctx: ToolContext) -> None:
-    search = call_tool(ctx, "search_units", {"province": "zhejiang", "year": CURRENT_YEAR, "limit": 1})
-    unit_id = search.data["units"][0]["unit_id"]
-    result = call_tool(ctx, "estimate_probability", {"unit_id": unit_id})
-    assert result.ok
-    assert result.data["probability"] is not None
-    assert len(result.data["probability_interval"]) == 2, "UI 只显示区间（§8）"
-    assert result.evidence
+    """有历史的单位：概率必须带**区间**与**证据链**（§8 UI 只显示区间）。
+
+    ★ 2026-09（ADR-018）调整：原先直接取 ``search_units`` 的第一条。
+    专业目录归属回填后，该条（浙江大学·社会学，无历史）的**同专业类类比池只有 1 个**，
+    按 §6.2 Step 0「同地区+同层次+同专业类」的原文要求**必须**返回 NO_DATA ——
+    旧实现因为 ``discipline`` 全为 NULL，退化成"任意专业"类比池（7 个）而给出了
+    一个**跨专业**的概率，那正是本项目禁止的编造。
+    因此这里改为：**在有历史的单位上**验证契约；NO_DATA 的诚实性另由
+    :func:`test_no_history_unit_is_honest_no_data` 守住。
+    """
+    search = call_tool(ctx, "search_units", {"province": "zhejiang", "year": CURRENT_YEAR, "limit": 200})
+    assert search.ok
+
+    checked = 0
+    for unit in search.data["units"]:
+        hist = call_tool(ctx, "get_unit_history", {"unit_id": unit["unit_id"], "years": 3})
+        if not hist.ok or not hist.data.get("records"):
+            continue  # 无历史 → Step 0，不在本用例的验证范围
+        result = call_tool(ctx, "estimate_probability", {"unit_id": unit["unit_id"]})
+        assert result.ok
+        assert result.data["probability"] is not None, unit["unit_id"]
+        assert len(result.data["probability_interval"]) == 2, "UI 只显示区间（§8）"
+        assert result.evidence
+        checked += 1
+        if checked >= 3:
+            break
+    assert checked > 0, "未找到任何有历史的单位，无法验证概率契约"
+
+
+def test_no_history_unit_is_honest_no_data(ctx: ToolContext) -> None:
+    """★ 宁可不答，不可编造：无历史且类比池不足的单位必须返回 NO_DATA，而不是猜一个概率。"""
+    search = call_tool(ctx, "search_units", {"province": "zhejiang", "year": CURRENT_YEAR, "limit": 200})
+    assert search.ok
+
+    found_no_data = False
+    for unit in search.data["units"]:
+        hist = call_tool(ctx, "get_unit_history", {"unit_id": unit["unit_id"], "years": 3})
+        if hist.ok and hist.data.get("records"):
+            continue
+        result = call_tool(ctx, "estimate_probability", {"unit_id": unit["unit_id"]})
+        assert result.ok
+        if result.data["probability"] is None:
+            # 契约铁律 2：probability is None ⇔ confidence == NO_DATA 且 reasons 说明原因
+            assert result.data["confidence"] == "NO_DATA"
+            assert result.data["reasons"], "NO_DATA 必须说明原因"
+            found_no_data = True
+            break
+    assert found_no_data, "预期存在无历史且无法类比的单位（Step 0 诚实回退）"
 
 
 def test_recommend_units_is_sourced(ctx: ToolContext) -> None:

@@ -55,6 +55,12 @@ from typing import Any, Iterable, NamedTuple
 
 import xlrd
 
+from app.core.major_taxonomy import (
+    LEVEL_BENKE,
+    LEVEL_ZHUANKE,
+    TaxonomyStatus,
+    classify_major,
+)
 from app.etl import catalog
 
 PROVINCE = "zhejiang"
@@ -417,6 +423,30 @@ class RealZhejiangDataset:
             "admission_units": len(self.admission_units),
             "admission_plans": len(self.admission_plans),
             "admission_history": len(self.admission_history),
+        }
+
+    def taxonomy_counts(self) -> dict[str, int]:
+        """专业目录归属回填结果（ADR-018）——按判定来源计数，供审计与回归。
+
+        ★ ``majors_without_discipline`` 是**刻意保留**的诚实缺口：
+        试验班大类招生只定到门类，另有极少数新专业名无法归类。
+        它们不参与"同一专业类"打分档，但**绝不用猜测填充**。
+        """
+        by_status: Counter[str] = Counter()
+        without_discipline = 0
+        without_category = 0
+        for row in self.major_rows:
+            taxonomy = classify_major(row["name"])
+            by_status[taxonomy.status.value] += 1
+            if not taxonomy.has_discipline:
+                without_discipline += 1
+            if not taxonomy.is_classified:
+                without_category += 1
+        return {
+            "majors_total": len(self.major_rows),
+            "majors_without_discipline": without_discipline,
+            "majors_without_category": without_category,
+            **{f"status_{k}": v for k, v in sorted(by_status.items())},
         }
 
     def digest(self) -> str:
@@ -874,12 +904,26 @@ def load_zhejiang(root: Path | str | None = None) -> RealZhejiangDataset:
 
         major_id = f"{PROVINCE}-c{chain.college_code}-{chain.slug}"
         if major_id not in major_seen:
+            # ★ 专业目录归属回填（ADR-018）：官方投档表**只发布专业名**，不发布
+            #   门类/专业类。原先这里硬编码 None，导致 scoring 的"同一专业类 0.80 /
+            #   同一门类 0.55 / 相关门类 0.30"三档对浙江真实数据**永不命中**，
+            #   且 probability Step 0 的类比池塌缩成 discipline=None 一个桶。
+            #   现改为调用 core 的确定性分类器，把专业名映射回教育部专业目录。
+            #   定不出来的（0.2%）保持 None —— 宁可不答，不可编造。
+            taxonomy = classify_major(
+                target.major_name,
+                level=(
+                    LEVEL_ZHUANKE
+                    if (target.duration or 0) == 3
+                    else (LEVEL_BENKE if target.duration else None)
+                ),
+            )
             major_seen[major_id] = {
                 "id": major_id,
                 "code": chain.slug,
                 "name": target.major_name,
-                "category": None,
-                "discipline": None,
+                "category": taxonomy.category,
+                "discipline": taxonomy.discipline,
                 "degree": None,
                 "duration": target.duration or (requirement.duration if requirement else None),
                 "subject_eval_grade": None,
@@ -1064,6 +1108,8 @@ def load_zhejiang(root: Path | str | None = None) -> RealZhejiangDataset:
         "target_year": TARGET_YEAR,
         "history_years": list(HISTORY_YEARS),
         "chains": len(chains),
+        # 专业目录归属回填覆盖率（ADR-018）
+        "major_taxonomy": dataset.taxonomy_counts(),
         "chains_with_3y_history": sum(
             1 for c in chains if sum(1 for y in HISTORY_YEARS if y in c.entries) == len(HISTORY_YEARS)
         ),
