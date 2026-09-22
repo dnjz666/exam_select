@@ -3190,6 +3190,20 @@
             "type": "object",
             "title": "Tier Distribution All"
           },
+          "tier_allocation": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Tier Allocation"
+          },
+          "tier_shortfall": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Tier Shortfall"
+          },
           "returned": {
             "type": "integer",
             "title": "Returned",
@@ -3589,6 +3603,106 @@
             "type": "number",
             "title": "Misc Score",
             "default": 0
+          },
+          "major_match_level": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Major Match Level"
+          },
+          "major_discipline": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Major Discipline"
+          },
+          "major_category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Major Category"
+          },
+          "admission_direction": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Admission Direction"
+          },
+          "direction_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Direction Kind"
+          },
+          "region_strength": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region Strength"
+          },
+          "is_home_province": {
+            "type": "boolean",
+            "title": "Is Home Province",
+            "default": false
+          },
+          "level_tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Level Tags"
+          },
+          "college_affiliation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "College Affiliation"
+          },
+          "college_is_public": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "College Is Public"
           }
         },
         "type": "object",

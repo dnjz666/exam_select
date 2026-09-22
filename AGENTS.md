@@ -908,7 +908,11 @@ POST   /recommend
   res  { items:[{ unit, college, major, probability, **probability_interval**, tier, confidence, utility,
                   score_breakdown, predicted_min_rank, sigma,
                   evidence[], adjustments[], reasons[], warnings[] }],
-         stats:{ tier_distribution, filtered_out_count, data_coverage, rule:{unit_type,...} } }
+         stats:{ tier_distribution, **tier_allocation**, **tier_shortfall**,
+                 filtered_out_count, data_coverage, rule:{unit_type,...} } }
+  # ★ ADR-020：items 是**按分层配额取样**的结果（各档都取样），不是"排序后取前 N"。
+  #   tier_allocation = 各层实际分到几个展示位；tier_shortfall = 配额应得 − 候选数。
+  #   tier_shortfall 里出现 BAO/DIAN ⇒ 这份列表**没有真正的保底**，UI 必须提示。
 
 # 志愿表
 POST   /plans/generate        # 生成志愿表

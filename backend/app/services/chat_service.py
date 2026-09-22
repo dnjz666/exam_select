@@ -18,6 +18,7 @@ LLM 在 M5 里始终只负责"解释与追问"，不负责往库里写数据。
 
 from __future__ import annotations
 
+import itertools
 import json
 import time
 import uuid
@@ -70,19 +71,34 @@ class AgentReply:
     student_id: str | None = None
 
 
+#: 进程内单调递增序号 —— 与 ``time.time_ns()`` 一起构成**严格递增**的消息 id。
+#: 为什么不能只靠纳秒：Windows 的系统时钟粒度约 15.6ms，``time.time_ns()`` 在同一 tick 内
+#: 会返回**完全相同**的值，于是同 tick 的两条消息只能靠随机后缀决定先后 → 一问一答被排成
+#: "答、问"（实测复现：``msg-01790044128378781800-c9aac9`` 与 ``...-e1aee5`` 同 ns）。
+_MSG_SEQ = itertools.count(1)
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
 def _next_id() -> str:
-    """**可按字典序排序**的消息 id：``msg-<纳秒>-<随机后缀>``。
+    """**严格可按字典序排序**的消息 id：``msg-<纳秒>-<进程内序号>-<随机后缀>``。
 
-    为什么不用纯 uuid：会话历史按 ``(created_at, id)`` 排序，而 ``created_at`` 只精确到秒，
-    同一秒里的多条消息就只能靠 id 决定先后。纯 uuid 是随机的 → **历史顺序会乱**
-    （实测踩过：一问一答被排成"答、问、问"）。纳秒前缀让 id 本身就是时间序，
-    随机后缀仍保证唯一。
+    会话历史按 ``(created_at, id)`` 排序，而 ``created_at`` 只精确到秒，
+    同一秒里的多条消息只能靠 id 决定先后。因此 id 必须**严格递增**：
+
+    * **纳秒前缀**：跨 tick 时天然有序（20 位零填充，字典序 == 数值序）；
+    * **进程内序号**：★ 同一 tick 内纳秒会**完全相同**（Windows 时钟粒度 ~15.6ms），
+      只靠纳秒 + 随机后缀会让先后变成 50% 抛硬币 —— 实测复现过
+      "assistant 排在 user 前面"，导致会话历史一问一答错位。
+      序号保证同 tick 内也严格递增；
+    * **随机后缀**：仅保证唯一，不参与时序判断。
+
+    > 跨进程（多 worker）并发写同一会话仍有理论上的定序歧义 —— 那属于分布式定序问题，
+    > 本系统单 worker 部署，不引入额外机制。
     """
-    return f"msg-{time.time_ns():020d}-{uuid.uuid4().hex[:6]}"
+    return f"msg-{time.time_ns():020d}-{next(_MSG_SEQ):08d}-{uuid.uuid4().hex[:6]}"
 
 
 # ---------------------------------------------------------------------------

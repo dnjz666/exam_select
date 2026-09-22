@@ -14,6 +14,7 @@ core 全程纯函数，本模块只做"查库 → 组装 → 调 core"（ADR-003
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
 from sqlalchemy.orm import Session
@@ -34,7 +35,7 @@ from app.core.models import (
 )
 from app.core.probability import analog_key, estimate_probability, probability_interval
 from app.core.rules import get_rule
-from app.core.rules.base import BatchRule, ProvinceRule
+from app.core.rules.base import BatchRule, ProvinceRule, distribute_quota
 from app.core.scoring import score_unit
 from app.db import models as db
 from app.db import repositories as repo
@@ -48,6 +49,90 @@ RED_LINE = (
     "该省全部批次均未达 PRIMARY（转载源），按 DOMAIN_RULES §1.3 红线，"
     "其推荐结果不得用于真实填报，UI 必须显示「规则待核实」横幅。"
 )
+
+#: 展示位分配时参与"首轮配额"的层（TOO_RISKY 不在配额里，只在显式开启时兜余量）
+_QUOTA_TIERS: tuple[Tier, ...] = (Tier.CHONG, Tier.WEN, Tier.BAO, Tier.DIAN)
+
+#: 展示位分配的迭代上限（水填充分配，每轮至少填满一层，正常 2–3 轮收敛）
+_ALLOCATION_MAX_ROUNDS = 8
+
+
+def allocate_display_slots(
+    pools: Mapping[Tier, Sequence[object]],
+    limit: int,
+    weights: Mapping[str, float],
+    *,
+    include_too_risky: bool,
+) -> tuple[dict[Tier, int], dict[Tier, int]]:
+    """把 ``limit`` 个**展示位**按分层配额分给各层（ADR-020）。
+
+    ## 为什么需要它
+
+    原实现是"按 ``(tier, -utility)`` 排序后取前 N"，而 ``TIER_ORDER`` 把 CHONG 排在最前，
+    于是 ``limit`` 小于 CHONG 候选数时**返回的整页全是"冲"**（实测 limit=8/20/60 全部如此，
+    即使全池有 62 个保、7,824 个垫）。考生会以为"一个稳的都没有"，这是**误导性展示**。
+
+    ## 算法（水填充 / water-filling）
+
+    1. 用**批次配额权重**把 ``limit`` 按最大余额法分给冲稳保垫（确定性）；
+    2. 某层候选不足 → 其份额按权重转给**仍有余量**的层，重复直到分完或没有余量；
+    3. ``include_too_risky=True`` 时，余量才给 TOO_RISKY（它不在配额里）；
+    4. 所有层都取空仍有余量 → **如实返回少于 limit 条**，绝不用低质量候选凑数。
+
+    ★ 与 ``planner._allocate`` 的区别（刻意不同）：
+    志愿表的借位规则是"**向更保守方向借**"（保底是安全承诺）；
+    而这里只是**浏览列表的取样**，要的是"各档都能看到"，故按权重**比例**再分配。
+
+    :return: ``(allocation, shortfall)`` —— 每层实际取几位 / 每层差几位（配额减去实得）。
+    """
+    if limit <= 0:
+        return {tier: 0 for tier in TIER_ORDER}, {tier: 0 for tier in TIER_ORDER}
+
+    capacity: dict[Tier, int] = {tier: len(pools.get(tier, ()) or ()) for tier in TIER_ORDER}
+    allocation: dict[Tier, int] = {tier: 0 for tier in TIER_ORDER}
+
+    active = {
+        tier
+        for tier in _QUOTA_TIERS
+        if capacity[tier] > 0 and weights.get(tier.value, 0.0) > 0
+    }
+    budget = limit
+    for _ in range(_ALLOCATION_MAX_ROUNDS):
+        if budget <= 0 or not active:
+            break
+        sub_weights = {tier.value: float(weights[tier.value]) for tier in active}
+        share = distribute_quota(sub_weights, budget)
+        progressed = False
+        for tier in sorted(active, key=TIER_ORDER.index):
+            room = capacity[tier] - allocation[tier]
+            take = min(share.get(tier.value, 0), room)
+            if take > 0:
+                allocation[tier] += take
+                budget -= take
+                progressed = True
+            if allocation[tier] >= capacity[tier]:
+                active.discard(tier)
+        if not progressed:
+            break
+
+    # 余量：仅在考生**显式要求**看过险档时才给它，绝不默认塞给用户
+    if budget > 0 and include_too_risky:
+        room = capacity[Tier.TOO_RISKY] - allocation[Tier.TOO_RISKY]
+        take = min(budget, max(0, room))
+        allocation[Tier.TOO_RISKY] += take
+        budget -= take
+
+    # 缺口 = 按配额**本应**展示几位 − 实际候选数（负值归零）。
+    # ★ 这是"保底/垫底缺失"的判据：真实浙江数据在 2 年窗口下一条 BAO/DIAN 都给不出，
+    #   必须让调用方拿到这个信号去提示考生，而不是让他看到一个没有垫底的列表。
+    ideal = distribute_quota(
+        {tier.value: float(weights[tier.value]) for tier in _QUOTA_TIERS if weights.get(tier.value, 0.0) > 0},
+        limit,
+    ) if any(weights.get(tier.value, 0.0) > 0 for tier in _QUOTA_TIERS) else {}
+    shortfall = {
+        tier: max(0, ideal.get(tier.value, 0) - capacity[tier]) for tier in TIER_ORDER
+    }
+    return allocation, shortfall
 
 
 @dataclass
@@ -393,15 +478,37 @@ def recommend(
         for scored, result in bundle.pairs
         if include_too_risky or result.tier is not Tier.TOO_RISKY
     ]
-    selectable.sort(
+    # 层内按效用降序（确定性：效用相同再按 unit_id）
+    selectable.sort(key=lambda pair: (-pair[0].utility, pair[0].unit.unit_id))
+
+    pools: dict[Tier, list[tuple[ScoredUnit, ProbabilityResult]]] = {
+        tier: [] for tier in TIER_ORDER
+    }
+    for pair in selectable:
+        pools[pair[1].tier].append(pair)
+
+    # ★ ADR-020：按分层配额**取样**，而不是"排序后取前 N"。
+    #   原做法在 limit 小于 CHONG 候选数时返回整页"冲"，考生会以为一个稳的都没有。
+    weights = bundle.rule.quota_weights(bundle.batch) or dict(params.quota)
+    allocation, shortfall = allocate_display_slots(
+        pools, limit, weights, include_too_risky=include_too_risky
+    )
+    chosen: list[tuple[ScoredUnit, ProbabilityResult]] = []
+    for tier in TIER_ORDER:
+        chosen.extend(pools[tier][: allocation.get(tier, 0)])
+    # 最终顺序仍是 冲→稳→保→垫（前端按梯度阅读），层内效用降序
+    chosen.sort(
         key=lambda pair: (TIER_ORDER.index(pair[1].tier), -pair[0].utility, pair[0].unit.unit_id)
     )
-    for scored, result in selectable[:limit]:
+    for scored, result in chosen:
         outcome.items.append(item_payload(bundle, scored, result, params))
 
     returned_counts: dict[str, int] = {}
     for item in outcome.items:
         returned_counts[item["tier"]] = returned_counts.get(item["tier"], 0) + 1
+
+    # 未能凑够 limit 时如实披露（不给低质量候选凑数）
+    unfilled = limit - len(outcome.items)
 
     # 候选池的院校所在地分布（供前端"意向地区"筛选器生成选项，ADR-017）。
     # 按数量降序；所在地缺失的院校不列入（否则会出现一个没有意义的空选项）。
@@ -422,6 +529,13 @@ def recommend(
         "data_coverage": bundle.data_coverage(),
         "tier_distribution": returned_counts,
         "tier_distribution_all": bundle.tier_counts(),
+        # ★ ADR-020：本次取样给各层分了多少展示位，以及哪些层**给不出**应得的量
+        "tier_allocation": {
+            tier.value: allocation.get(tier, 0) for tier in TIER_ORDER if allocation.get(tier, 0)
+        },
+        "tier_shortfall": {
+            tier.value: shortfall.get(tier, 0) for tier in TIER_ORDER if shortfall.get(tier, 0)
+        },
         "returned": len(outcome.items),
         "limit": limit,
         "include_too_risky": include_too_risky,
@@ -442,8 +556,23 @@ def recommend(
         )
     if len(selectable) > limit:
         warnings.append(
-            f"可推荐 {len(selectable)} 个，按分层与效用截取前 {limit} 个；"
-            "提高 limit 或缩小筛选范围可看到更多候选。"
+            f"可推荐 {len(selectable)} 个，已按**分层配额**取样 {limit} 个"
+            "（各档都会取样，不是只给「冲」档）；提高 limit 或缩小筛选范围可看到更多候选。"
+        )
+    if unfilled > 0:
+        warnings.append(
+            f"候选池不足以填满 {limit} 个展示位（实际返回 {len(outcome.items)} 个）："
+            "没有用低质量候选凑数。"
+        )
+    # ★ ADR-020 / M7-11：保底、垫底缺失必须**明说**，不能给一个没有垫底的列表
+    missing_safety = [
+        tier.value for tier in (Tier.DIAN, Tier.BAO) if shortfall.get(tier, 0) > 0
+    ]
+    if missing_safety:
+        warnings.append(
+            f"⚠️ 本次取样缺少 {'、'.join(missing_safety)} 档候选（配额要求的数量给不出）："
+            "常见原因是可用历史年数不足、安全闸门把「保/垫」降级为「稳」，"
+            "或筛选条件过窄。**不要据此认为已有保底**。"
         )
     if bundle.data_coverage() < 0.99 and bundle.filtered.passed:
         warnings.append(
@@ -496,6 +625,7 @@ __all__ = [
     "TIER_ORDER",
     "EvaluationBundle",
     "RecommendOutcome",
+    "allocate_display_slots",
     "evaluate_candidates",
     "item_payload",
     "recommend",

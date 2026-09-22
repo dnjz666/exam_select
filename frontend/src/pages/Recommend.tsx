@@ -16,7 +16,7 @@ import { TierBadge } from '../components/TierBadge'
 import { TierLegend } from '../components/Disclaimer'
 import { formatNumber, formatPlanCount, formatRank, formatTuition, describeSubjectRequirement } from '../lib/format'
 import { useAsync } from '../lib/hooks'
-import { PROVINCE_LABEL, TIER_ORDER, TIER_STYLE, UNIT_TYPE_LABEL, missingFieldLabel, provinceLabel, regionLabel } from '../lib/labels'
+import { PROVINCE_LABEL, TIER_LABEL, TIER_ORDER, TIER_STYLE, UNIT_TYPE_LABEL, missingFieldLabel, provinceLabel, regionLabel } from '../lib/labels'
 import { useProfileStore } from '../store/profile'
 import { usePlanStore } from '../store/plan'
 
@@ -357,6 +357,31 @@ export function RecommendPage() {
               <p className="num text-lg font-semibold">{formatNumber(stats.returned)}</p>
             </div>
           </div>
+          {/* ★ ADR-020：本次按分层配额**取样**（各档都取样，不是只给"冲"档）。
+              让考生看得见"每一档各取了几条"，以及哪一档**给不出**应得的数量 ——
+              后者意味着这份列表**没有真正的保底**，不能让他误以为有。 */}
+          {Object.keys(stats.tier_allocation ?? {}).length > 0 && (
+            <p className="mt-3 text-xs text-slate-600">
+              各档取样：
+              {TIER_ORDER.filter((tier) => (stats.tier_allocation ?? {})[tier]).map((tier) => (
+                <span key={tier} className="ml-2 font-mono">
+                  {TIER_LABEL[tier] ?? tier} {(stats.tier_allocation ?? {})[tier]}
+                </span>
+              ))}
+            </p>
+          )}
+          {(() => {
+            const shortfall = stats.tier_shortfall ?? {}
+            const missing = ['DIAN', 'BAO'].filter((tier) => (shortfall[tier] ?? 0) > 0)
+            if (missing.length === 0) return null
+            return (
+              <p className="mt-2 rounded bg-amber-50 px-2 py-1 text-xs text-amber-800">
+                ⚠️ 本次列表<strong>没有 {missing.map((t) => TIER_LABEL[t] ?? t).join('、')} 档候选</strong>
+                （配额要求的数量给不出）。常见原因：可用历史年数不足、安全闸门把「保/垫」降级为「稳」、
+                或筛选条件过窄。<strong>请勿据此认为已有保底。</strong>
+              </p>
+            )
+          })()}
           {Object.keys(stats.filtered_out_reasons ?? {}).length > 0 && (
             <details className="mt-3">
               <summary className="cursor-pointer text-xs text-slate-600">

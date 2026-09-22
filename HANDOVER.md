@@ -31,7 +31,22 @@
 | **M6** | **真实数据接入（浙江 2023–2026；其余五省仍为模拟数据）** | ✅ **完成**（ADR-015） |
 | **M6.5** | **专业四级分类规则库 + 目录归属回填（用户实测报障）** | ✅ **完成**（ADR-018） |
 | **M6.6** | **院校层次判别增强 + 地区维度 + 持久结果缓存 + 配额调整** | ✅ **完成**（ADR-019） |
-| M7 | 加固与交付 | ⬜ 下一轮 |
+| **M7** | **加固与交付（进行中：截断方式 ✅ / 会话定序 ✅）** | 🟡 **进行中** |
+| M7 剩余 | 回测口径 · 性能 P95<1s · 边界 · Docker · 手册/alembic 等 | ⬜ 待做 |
+
+### M7 已完成项
+
+* ✅ **推荐列表截断方式**（ADR-020）：原"排序取前 N"在 `limit` 小于 CHONG 候选数时
+  返回整页"冲"（实测 limit=8/20/60 全部如此，而全池有 BAO 62 / DIAN 7824）。
+  改为按分层配额取样：limit=8 → 冲3/稳3/保2；limit=60 → 冲23/稳22/保11/垫4。
+  新增 `stats.tier_allocation` / `stats.tier_shortfall` + 保底缺失警告 + 前端展示。
+* ✅ **会话历史定序**（ADR-021）：`time.time_ns()` 在 Windows 上粒度约 15.6ms，
+  同 tick 内返回相同值 → 同秒消息只能靠随机后缀定序 → **约 50% 概率把一问一答排成"答、问"**
+  （会话历史是证据链，顺序错乱=证据链读不通）。已改为 `msg-<ns>-<进程内序号>-<随机>`，
+  40 轮真实问答 0 次倒置，全量测试连跑 4 次全绿。
+
+> ⚠️ **`_next_id` 的定序语义别改回去**：只靠纳秒 + 随机后缀在 Windows 上必然偶发倒置。
+> 回归用例 `tests/test_chat_ordering.py` 会**冻结时钟**来确定性地守住它。
 
 ### M6.6 交付了什么（一句话版）
 
@@ -247,25 +262,35 @@ L1 backend/app/etl/**  synthetic.py（确定性模拟，seed 固定）
    静态数据与概率结果双层缓存。**仍未达 P95 < 1s**（冷启动要读 5.8 万行 + 算 1.5 万个单位）；
    下一步需要**架构改动**：候选池"粗排 → 精算"，或把单位级中间量预计算落库。
    ⚠️ 改之前先读 ADR-016 的"必须记住的两条"（缓存键必须含目标计划数；不要用 `id()` 做键）。
-3. **推荐列表截断方式**（M6 手测发现）：`limit=8` 时返回的 8 条**全是"冲"**
-   （候选按分层排序后取前 N）。展示层应按分层配额取样，别让用户以为"一个稳的都没有"。
-   ★ **ADR-018 后更值得优先修**：专业匹配生效后 utility 已真正分化（124 个取值），
-   此时"取前 N"会**系统性偏向高 utility 的"冲"档**，问题比之前更突出。
+3. ✅ **已完成（ADR-020）· 推荐列表截断方式**：原实现"按 `(tier, -utility)` 排序取前 N"
+   在 `limit` 小于 CHONG 候选数时返回整页"冲"（实测 limit=8/20/60 全部如此，而全池有 BAO 62 / DIAN 7824）。
+   已改为 `recommend_service.allocate_display_slots()` **按分层配额取样**：
+   浙江 630 分 limit=8 → 冲3/稳3/保2；limit=60 → 冲23/稳22/保11/垫4。
+   新增契约字段 `stats.tier_allocation` / `stats.tier_shortfall`；前端展示"各档取样"与保底缺失提示。
+   **注意**：`planner._allocate`（志愿表）仍是"向更保守方向借位"，**与展示层取样刻意不同**，
+   别把两者合并。
 4. **Step 0 类比池阶梯**（ADR-018 引入）：目录归属回填后，类比池从"任意专业"收紧为
    "同专业类"，覆盖率 **−0.29pp**（15,333 → 15,281 可评估单位），换掉了跨专业编造。
    可考虑加"**保持专业类不变、逐级放宽地区/层次**"的类比阶梯把覆盖率补回来——
    **必须先用回测验证**（AGENTS.md §6.9），且绝不允许跨专业类兜底。
-4. 边界：0 志愿 / 超高分 / 超低分 / 全被过滤 / 一次对话内连续建档。
-5. 前端视觉回归：引入 Playwright（现在只有 `pnpm smoke` 的契约级验证，不能证明像素与交互）。
-6. 敏感度热力图（DOMAIN_RULES §3.1 待补）。
-7. §6.8 的两个增量风险码：调剂越界、退档条款命中（上海原文已核实，字段已就位）。
-8. Docker 生产配置（本机 Docker 守护进程未运行，需人工启动验证）。
-9. 用户手册与 `DECISIONS.md` 汇总；`alembic` 迁移（现在 dev 靠 `create_all`，
-   M6 加了两列只能靠 `seed.py --reset`，已在脚本里给出明确指引）。
-10. 规则包的 `verified_year` / `verified_status` 复核（天津/海南升 PRIMARY 是长期待办）。
-11. **前端"保底志愿缺失"提示**：浙江真实数据在 2 年窗口下**一条"保/垫"都给不出**
-    （ADR-015 缺陷 6）。UI 需要据此明确提示"当前数据不足以给出保底志愿"，
-    而不是让用户看到一个没有垫底的志愿表。
+5. 边界：0 志愿 / 超高分 / 超低分 / 全被过滤 / 一次对话内连续建档。
+6. 前端视觉回归：引入 Playwright（现在只有 `pnpm smoke` 的契约级验证，不能证明像素与交互）。
+7. 敏感度热力图（DOMAIN_RULES §3.1 待补）。
+8. §6.8 的两个增量风险码：调剂越界、退档条款命中（上海原文已核实，字段已就位）。
+9. Docker 生产配置（本机 Docker 守护进程未运行，需人工启动验证）。
+10. 用户手册与 `DECISIONS.md` 汇总；`alembic` 迁移（现在 dev 靠 `create_all`，
+    M6 加了两列只能靠 `seed.py --reset`，已在脚本里给出明确指引）。
+11. 规则包的 `verified_year` / `verified_status` 复核（天津/海南升 PRIMARY 是长期待办）。
+12. 🟡 **"保底志愿缺失"提示 —— 后端已完成，前端待视觉验证**：
+    后端现在通过 `stats.tier_shortfall` + `warnings` 明确披露（ADR-020）；
+    `Recommend.tsx` 已加醒目提示，但**前端构建/视觉回归需真实终端**（沙箱 esbuild EPERM），
+    本机尚未跑过 `pnpm build` / `pnpm smoke`。
+    ⚠️ 另注意：**推荐列表里 BAO/DIAN 是有候选的**（全池 BAO 62 / DIAN 7824），
+    缺的是**志愿表**侧（2 年窗口 + 安全闸门把保/垫降级为稳，见 ADR-015 缺陷 6）。
+13. **首次回复免责声明硬编码"当前数据为模拟数据"**（`chat_service.DISCLAIMER`）——
+    对浙江考生是**事实错误**（他们看的是省考试院真实投档数据）。
+    正确做法：按 `source_url` 前缀（`real://` vs `synthetic://`）动态生成。
+14. **上海 `wen_hit_rate` = 84.30%**（< 85%，ADR-019 之前即存在，已用基线库对照确认）。
 
 **M7 注意**：`safety_margin=0.60` 意味着"保底"标签更稀缺，
 `planner` 会更频繁地向更保守方向借位；如果做性能/边界改造，别把这条语义改掉。
@@ -313,6 +338,8 @@ L1 backend/app/etl/**  synthetic.py（确定性模拟，seed 固定）
 | **层次问答的意图路由与叙述** | `parser.py`（`college_level` 意图）· `chat_service._answer_about_school_level` · `narrator.narrate_college_level`（+ `tests/test_agent_college_level.py`） |
 | 全部决策与被否决方案、各轮验收记录 | `docs/DECISIONS.md`（ADR-001…ADR-018） |
 | **M6.5 专业目录归属缺陷与四级规则库** | `docs/DECISIONS.md` **ADR-018** |
+| **M7 推荐列表截断方式（分层取样）** | `docs/DECISIONS.md` **ADR-020** |
+| **M7 会话历史定序缺陷** | `docs/DECISIONS.md` **ADR-021** |
 | **M6 真实数据接入的设计、五个实测缺陷、性能复盘** | `docs/DECISIONS.md` **ADR-015** |
 | **真实数据适配器（浙江）** | `backend/app/etl/loaders/zhejiang.py`（+ `tests/test_loaders_zhejiang.py`） |
 | 官方数据采集/解析脚本 | `scripts/collect_zj_scorelines.py` · `parse_zj_compilation_pdf.py` · `collect_zj_score_segment.py` · `zjzs_fetch.py` · `package_zj_data.py` |

@@ -314,12 +314,25 @@ class StandardProvinceRule(ProvinceRule):
         #    因此这里不产出违规；相关提示由 M2 的 risk.py 以风险码呈现。
         return violations
 
-    def default_quota(self, batch: BatchRule) -> dict[Tier, int]:
-        """平行志愿批次按批次配额（缺省回落 ModelParams.quota）分配；顺序志愿批次返回空。"""
+    def quota_weights(self, batch: BatchRule) -> dict[str, float]:
+        """该批次的分层**权重**（未按志愿数放大）；顺序志愿批次返回空。
+
+        ★ 为什么单独抽出来（ADR-020）：推荐列表的"按分层取样"需要**权重**而不是
+        已放大的条数（它要按 ``limit`` 重新分配，而不是按 ``max_volunteers``）。
+        原先这段"批次配额优先、否则回落 ModelParams.quota"的选取逻辑只写在
+        :meth:`default_quota` 里，展示层若要用就得复制一遍 —— 复制必然漂移。
+        """
         if not batch.is_parallel:
             return {}
         weights = batch.tiers_quota if batch.tiers_quota is not None else ModelParams().quota
         problems = validate_tier_quota(weights)
         if problems:
             raise ValueError(f"{batch.batch_code} tiers_quota 非法: {'; '.join(problems)}")
+        return dict(weights)
+
+    def default_quota(self, batch: BatchRule) -> dict[Tier, int]:
+        """平行志愿批次按批次配额（缺省回落 ModelParams.quota）分配；顺序志愿批次返回空。"""
+        weights = self.quota_weights(batch)
+        if not weights:
+            return {}
         return distribute_quota(weights, batch.max_volunteers)

@@ -258,6 +258,12 @@ class RecommendStats(BaseModel):
     data_coverage: float = 0.0
     tier_distribution: dict[str, int] = Field(default_factory=dict)
     tier_distribution_all: dict[str, int] = Field(default_factory=dict)
+    #: ★ ADR-020：本次**取样**给各层分了多少展示位（只含非零层）。
+    #: 与原实现"排序后取前 N"的区别：现在各档都会取样，不是只给「冲」档。
+    tier_allocation: dict[str, int] = Field(default_factory=dict)
+    #: ★ ADR-020：哪些层**给不出**配额应得的数量（缺口 = 应得 − 候选数）。
+    #: 保底/垫底出现在这里时，说明本次列表**没有真正的保底**，UI 必须提示。
+    tier_shortfall: dict[str, int] = Field(default_factory=dict)
     returned: int = 0
     limit: int = DEFAULT_LIMIT
     include_too_risky: bool = False
