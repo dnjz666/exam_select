@@ -130,6 +130,13 @@ def main() -> int:
             from app.db import repositories
 
             repositories.bump_generation()
+            # ★ ADR-019：同时推进**持久化**数据代次，让持久结果缓存失效。
+            #   回填只改值、不改行数 —— 靠"行数是否变化"判断失效会漏掉。
+            from app.services import cache_service
+
+            version = cache_service.bump_data_version(session, note="backfill-taxonomy")
+            session.commit()
+            print(f"数据代次（data_version）→ {version}：持久结果缓存已失效")
 
     print()
     print("=== 判定来源分布 ===")

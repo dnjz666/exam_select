@@ -7,6 +7,9 @@ import pytest
 from app.core.models import College, Major, Preferences
 from app.core.scoring import (
     CITY_TIERS,
+    REGION_AWAY_BASE,
+    REGION_AWAY_SPAN,
+    REGION_TOP_COLLEGE_COUNT,
     city_score,
     level_score,
     major_match_detail,
@@ -14,6 +17,7 @@ from app.core.scoring import (
     misc_score,
     normalize_weights,
     region_score,
+    region_strength_index,
     score_unit,
     tuition_score,
     utility_of,
@@ -122,6 +126,100 @@ def test_region_and_city_scores() -> None:
     assert city_score("某不存在的城市") == 0.35
     assert city_score(None) == 0.35
     assert set(CITY_TIERS.values()) <= {"一线", "新一线", "二线", "三线"}
+
+
+# ---------------------------------------------------------------------------
+# 地区高教资源密度 + 本省认可度（ADR-019）
+# ---------------------------------------------------------------------------
+def test_region_strength_is_data_derived_and_bounded() -> None:
+    """密度指数来自名册统计，必须落在 (0,1]，且北京（31 所）为最大值。"""
+    assert region_strength_index("beijing") == 1.0
+    assert region_strength_index("zhejiang") == pytest.approx(3 / 31)
+    for province in REGION_TOP_COLLEGE_COUNT:
+        value = region_strength_index(province)
+        assert value is not None and 0.0 < value <= 1.0
+    # 未知省份 → None（不猜）
+    assert region_strength_index(None) is None
+    assert region_strength_index("atlantis") is None
+    assert region_strength_index("") is None
+
+
+def test_region_strength_never_judges_single_college_quality() -> None:
+    """★ 语义边界：密度只描述**地区整体资源**，不用于单所院校质量判断。
+
+    浙江只有 3 所双一流（密度低于江苏），但这不代表浙工大差 ——
+    所以"本省"必须拿满分，不能被密度拉低。
+    """
+    zj = region_score([], "zhejiang", home_province="zhejiang")
+    js = region_score([], "jiangsu", home_province="zhejiang")
+    assert zj == 1.00, "本省必须满分（本地认可度）"
+    assert region_strength_index("zhejiang") < region_strength_index("jiangsu")
+    assert zj > js, "即使本省密度更低，本省仍应高于外省"
+
+
+def test_region_score_without_intent_uses_home_and_strength() -> None:
+    """无意向地区时不再一律 1.00 —— 否则地区维度完全不参与排序。"""
+    home = "zhejiang"
+    assert region_score([], home, home_province=home) == 1.00
+    beijing = region_score([], "beijing", home_province=home)
+    qinghai = region_score([], "qinghai", home_province=home)
+    # 外省得分 ∈ [BASE, BASE+SPAN]，且**始终低于本省**
+    assert REGION_AWAY_BASE <= qinghai < beijing <= REGION_AWAY_BASE + REGION_AWAY_SPAN
+    assert beijing < 1.00, "外省不得与本省同分"
+
+
+def test_region_score_unknown_home_stays_unrestricted() -> None:
+    """不知道考生本省 → 不能区别对待（不知道就不能否决）。"""
+    assert region_score([], "beijing", home_province=None) == 1.00
+    assert region_score([], "qinghai", home_province=None) == 1.00
+
+
+def test_region_score_explicit_intent_semantics_unchanged() -> None:
+    """有意向地区时保持原语义（勾选 1.0 / 可接受 0.5 / 未命中 0.0）。"""
+    home = "zhejiang"
+    assert region_score(["zhejiang"], "zhejiang", home_province=home) == 1.00
+    assert region_score(["可接受"], "beijing", home_province=home) == 0.50
+    assert region_score(["zhejiang"], "beijing", home_province=home) == 0.00
+    # 有意向时"本省"不再自动满分（尊重考生明确选择）
+    assert region_score(["beijing"], "zhejiang", home_province=home) == 0.00
+
+
+def test_region_score_unknown_college_province_not_punished() -> None:
+    """院校所在地缺失 → 给外省中位分，不因缺数据重罚。"""
+    value = region_score([], None, home_province="zhejiang")
+    assert value == pytest.approx(REGION_AWAY_BASE + REGION_AWAY_SPAN / 2)
+
+
+# ---------------------------------------------------------------------------
+# 院校层次判别：不只看 985/211/双一流（ADR-019）
+# ---------------------------------------------------------------------------
+def test_level_score_recognises_provincial_key_universities() -> None:
+    """★ 省重点院校没有 985/211 标签，但不应被当成"普通公办"。
+
+    实测缺陷：231 所省重点（浙工大、杭电、浙工商…）层次标签为空、affiliation 也为空，
+    只拿 0.45；名册里它们本是 PROV tier。
+    """
+    assert level_score([], affiliation="省重点建设高校") == 0.60
+    assert level_score([], affiliation="省部共建") == 0.60
+    # 有标签时标签优先
+    assert level_score(["双一流"], affiliation="省重点建设高校") == 0.75
+
+
+def test_level_score_private_is_lowest() -> None:
+    """民办/独立学院必须落到最低档（名师铁律 10 的学费明示依据）。"""
+    assert level_score([], is_public=False) == 0.20
+    assert level_score(["985"], is_public=False) == 1.00  # 标签优先
+
+
+def test_level_score_ordering_is_sane() -> None:
+    assert (
+        level_score(["985"])
+        > level_score(["211"])
+        > level_score(["双一流"])
+        > level_score([], affiliation="省重点建设高校")
+        > level_score([])
+        > level_score([], is_public=False)
+    )
 
 
 def test_tuition_score_branches() -> None:

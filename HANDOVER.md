@@ -30,7 +30,27 @@
 | M5 | Agent 层与防幻觉（12 个只读工具 + 护栏 + 对话式建档 + 会话落库） | ✅ 完成 |
 | **M6** | **真实数据接入（浙江 2023–2026；其余五省仍为模拟数据）** | ✅ **完成**（ADR-015） |
 | **M6.5** | **专业四级分类规则库 + 目录归属回填（用户实测报障）** | ✅ **完成**（ADR-018） |
+| **M6.6** | **院校层次判别增强 + 地区维度 + 持久结果缓存 + 配额调整** | ✅ **完成**（ADR-019） |
 | M7 | 加固与交付 | ⬜ 下一轮 |
+
+### M6.6 交付了什么（一句话版）
+
+① 层次判别不再只看 985/211/双一流：名册 tier 的 `PROV`/`PRIV` 原先没映射，
+**231 所省重点只拿 0.45、31 所民办被打成公办** —— 已修（浙工大 0.45 → **0.60**）。
+② 地区维度原先对"未填意向"恒为常数：现按**本省认可度 1.00** + **地区高教资源密度**
+（数据驱动：各省双一流及以上院校数 / 31）区分；浙工大在同层排名由第 173 → **第 68**。
+③ agent 新增第 **13** 个只读工具 `get_college_level_facts`（判据 + `level_score` 的来源规则 +
+caveats，**刻意不给排名**）。④ `recommend` 结果**持久缓存**（`result_cache` + `app_meta.data_version`），
+同位次同筛选可跨考生、跨重启复用。⑤ 配额改为 **冲+稳 = 75%（冲≈稳）、保+垫 = 25%**
+（浙江 80 → 冲 30 / 稳 30 / 保 15 / 垫 5）。
+
+**必读**：`docs/DECISIONS.md` **ADR-019**。
+
+> ⚠️ **改了规则库 / 重新播种 / 回填之后，必须推进 `data_version`**（`seed.py` 与
+> `backfill_major_taxonomy.py` 已自动调用），否则持久结果缓存会继续返回旧结论。
+> 查看概况用 `services.cache_service.stats(session)`。
+> ⚠️ **上海 `wen_hit_rate` = 84.30%（< 85%）是 ADR-019 之前就存在的缺陷**，
+> 已用改动前的基线库对照确认；配额只影响志愿表生成，不影响分层校准。列入 M7。
 
 ### M6.5 交付了什么（一句话版）
 
@@ -287,6 +307,8 @@ L1 backend/app/etl/**  synthetic.py（确定性模拟，seed 固定）
 | **专业分类纯函数分类器** | `backend/app/core/major_taxonomy.py`（+ `major_taxonomy_data.py` + `tests/test_major_taxonomy.py`） |
 | **专业目录归属原地回填（不碰用户数据）** | `scripts/backfill_major_taxonomy.py`（`--reclassify` 用于规则改动后重算） |
 | **规则库 JSON 重复键检测/消解** | `scripts/dedupe_major_taxonomy.py`（详见 ADR-018 补充） |
+| **持久结果缓存（相似查询复用）** | `backend/app/services/cache_service.py`（+ `tests/test_cache_service.py`） |
+| **院校层次事实工具（agent 第 13 个）** | `backend/app/agent/tools.py::_get_college_level_facts` |
 | 全部决策与被否决方案、各轮验收记录 | `docs/DECISIONS.md`（ADR-001…ADR-018） |
 | **M6.5 专业目录归属缺陷与四级规则库** | `docs/DECISIONS.md` **ADR-018** |
 | **M6 真实数据接入的设计、五个实测缺陷、性能复盘** | `docs/DECISIONS.md` **ADR-015** |

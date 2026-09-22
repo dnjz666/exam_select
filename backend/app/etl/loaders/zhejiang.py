@@ -634,6 +634,20 @@ _LEVEL_TAGS = {
     "211": ["211", "双一流"],
     "SY": ["双一流"],
 }
+
+#: catalog 名册的 tier → **补充属性**（ADR-019）
+#:
+#: ★ 实测缺陷：``_LEVEL_TAGS`` 只映射了 985/211/SY，而名册里还有
+#: ``PROV``（243 所省重点）与 ``PRIV``（35 所民办/独立学院）。于是：
+#:   * 231 所省重点院校（浙工大、杭电、浙工商…）``affiliation`` 为空、
+#:     层次标签为空 → ``level_score`` 只给 0.45（普通公办），应为 **0.60**；
+#:   * 31 所民办/独立学院 ``is_public`` 仍为 True → 被打成"普通公办本科" 0.45，
+#:     应为 **0.20**，且**破坏了名师铁律 10**（民办/独立学院学费必须在卡片明示，
+#:     而 `is_public` 正是该提示的判据）。
+#: 官方名后缀（原文标注）优先于名册，故只在缺失时补。
+_TIER_AFFILIATION: dict[str, str] = {"PROV": "省重点建设高校"}
+_TIER_IS_PUBLIC: dict[str, bool] = {"PRIV": False}
+
 #: 官方院校名后缀 → 属性（原文标注，非推断）
 _NAME_SUFFIX = {
     "一流大学建设高校": ("level", ["985", "211", "双一流"]),
@@ -745,10 +759,18 @@ def _build_colleges(rows: Iterable[SourceRow], *, catalog_meta: dict[str, dict])
         clean, attributes = _strip_markers(row.college_name)
         meta = catalog_meta.get(clean)
         level_tags = list(attributes.get("level_tags") or [])
+        # 官方名后缀（attributes）优先；名册只在缺失时补（ADR-019）
+        affiliation = attributes.get("affiliation")
+        is_public = bool(attributes.get("is_public", True))
         if meta:
-            for tag in _LEVEL_TAGS.get(meta["tier"], []):
+            tier = meta["tier"]
+            for tag in _LEVEL_TAGS.get(tier, []):
                 if tag not in level_tags:
                     level_tags.append(tag)
+            if affiliation is None:
+                affiliation = _TIER_AFFILIATION.get(tier)
+            if tier in _TIER_IS_PUBLIC:
+                is_public = _TIER_IS_PUBLIC[tier]
         colleges.append(
             {
                 "id": f"{PROVINCE}-{code}",
@@ -758,8 +780,8 @@ def _build_colleges(rows: Iterable[SourceRow], *, catalog_meta: dict[str, dict])
                 "city": place.college_city or (meta or {}).get("city") or None,
                 "level_tags": json.dumps(level_tags, ensure_ascii=False),
                 "college_type": (meta or {}).get("college_type"),
-                "affiliation": attributes.get("affiliation"),
-                "is_public": bool(attributes.get("is_public", True)),
+                "affiliation": affiliation,
+                "is_public": is_public,
                 # 保研率 / 硕博点：官方投档表不发布 → 留空，不编造
                 "postgrad_rate": None,
                 "master_points": None,

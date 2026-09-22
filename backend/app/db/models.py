@@ -271,3 +271,49 @@ class ChatMessage(Base):
     created_at: Mapped[str] = mapped_column(String(32), nullable=False)
     source_url: Mapped[str] = mapped_column(String(512), nullable=False, default="agent://chat")
     is_synthetic: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class AppMeta(Base):
+    """键值元数据（ADR-019）。
+
+    目前只存 ``data_version`` —— **持久化的数据代次令牌**，用于让"结果缓存"在
+    **跨进程重启**后依然能被正确失效。
+
+    ★ 为什么必须有它：进程内代数号（ADR-016 的 ``_generation``）重启就归零，
+    若把它写进持久缓存键，重启后旧结果会被当成新结果命中。
+    ★ 为什么不能靠"行数变化"判断：实测回填 ``majors.category`` 时**行数没变**，
+    但归类全变了 —— 只有写入方显式 bump 才可靠。
+    """
+
+    __tablename__ = "app_meta"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[str] = mapped_column(String(128), nullable=False)
+    updated_at: Mapped[str] = mapped_column(String(32), nullable=False)
+
+
+class ResultCache(Base):
+    """计算结果持久缓存（ADR-019）——"相似问题下次直接调用"。
+
+    ★ 缓存什么：``recommend`` 的完整响应体。它**只依赖**
+    ``(数据代次, 省, 年, 位次, 筛选, 权重, 参数, limit, 批次, 是否含过险)``，
+    与考生身份无关（``item_payload`` 不含 student_id；概率只依赖位次，见 probability 文档）。
+    因此同位次 + 同筛选的**另一位考生**也能安全复用。
+    ★ 失效：``data_version`` 变化（重新播种 / 回填）即整体失效；
+    参数或筛选变化会生成不同的 ``cache_key``，天然不命中。
+    """
+
+    __tablename__ = "result_cache"
+
+    #: 内容指纹（sha256），见 services.cache_service.fingerprint_recommend
+    cache_key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    #: 写入时的数据代次；读取时必须相等，否则视为未命中
+    data_version: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    #: 缓存类别（目前只有 recommend；为后续 plan/probability 预留）
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    #: 人类可读的键摘要，便于排错与运维查看（不参与匹配）
+    label: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    payload: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    hits: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_hit_at: Mapped[str | None] = mapped_column(String(32))

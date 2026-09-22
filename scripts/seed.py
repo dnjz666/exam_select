@@ -294,6 +294,14 @@ def main(argv: list[str] | None = None) -> int:
         counts = _counts(session)
         real_counts = _real_counts(session, REAL_PROVINCE)
 
+        # ★ ADR-019：推进持久化数据代次，让所有**持久结果缓存**失效。
+        #   必须在 commit 之后单独做：缓存读的是"数据是什么样"，而不是"行数是多少"。
+        from app.services import cache_service
+
+        new_version = cache_service.bump_data_version(session, note="seed")
+        session.commit()
+        print(f"[seed] 数据代次（data_version）→ {new_version}：持久结果缓存已整体失效")
+
     print("[seed] 入库后库内计数：")
     for name, count in counts.items():
         print(f"        {name:<22} {count:>7}   （其中 {REAL_PROVINCE} 真实 {real_counts.get(name, 0):>7}）")

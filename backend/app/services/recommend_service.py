@@ -39,7 +39,7 @@ from app.core.scoring import score_unit
 from app.db import models as db
 from app.db import repositories as repo
 from app.etl.synthetic import CURRENT_YEAR
-from app.services import student_service
+from app.services import cache_service, student_service
 
 #: 推荐列表的分层排序（冲 → 稳 → 保 → 垫 → 基本无望）
 TIER_ORDER: tuple[Tier, ...] = (Tier.CHONG, Tier.WEN, Tier.BAO, Tier.DIAN, Tier.TOO_RISKY)
@@ -191,6 +191,8 @@ def evaluate_candidates(
             college=college,
             major=major,
             level_tags=tuple(college.level_tags) if college else (),
+            # ★ ADR-019：地区维度需要考生本省（本省认可度 + 地区高教资源密度）
+            home_province=profile.province,
         )
         bucket = analog_index.get(
             analog_key(
@@ -329,9 +331,52 @@ def recommend(
     params: ModelParams | None = None,
     allowed_batches: list[str] | None = None,
     intent_as_hard: bool = False,
+    use_cache: bool = True,
 ) -> RecommendOutcome:
-    """按 §7 生成推荐列表（含每项证据链与整体统计）。"""
+    """按 §7 生成推荐列表（含每项证据链与整体统计）。
+
+    ★ ADR-019：带**持久缓存**。键覆盖 ``(数据代次, 省, 年, 位次, 筛选, 权重, 参数, limit,
+    批次, 是否含过险)`` —— 结果与考生身份无关，因此"同位次 + 同筛选"的另一位考生
+    可直接复用（详见 ``services/cache_service.py``）。
+    """
     params = params or ModelParams()
+    criteria = criteria or FilterCriteria()
+
+    # 先定位次（缓存键要用它；ensure_rank 是幂等的）
+    profile = student_service.ensure_rank(session, student_row)
+    rank = profile.rank
+    cache_hit = False
+    cache_key: str | None = None
+    if use_cache and rank is not None:
+        data_version = cache_service.get_data_version(session)
+        cache_key, label = cache_service.fingerprint_recommend(
+            data_version=data_version,
+            province=profile.province,
+            year=profile.year,
+            rank=rank,
+            criteria=criteria,
+            weights=weights,
+            params=params,
+            limit=limit,
+            include_too_risky=include_too_risky,
+            allowed_batches=allowed_batches,
+            intent_as_hard=intent_as_hard,
+        )
+        cached = cache_service.cache_get(session, cache_key, data_version)
+        if cached is not None:
+            outcome = RecommendOutcome(
+                items=cached.get("items", []),
+                stats=cached.get("stats", {}),
+                warnings=cached.get("warnings", []),
+                evidence=cached.get("evidence", []),
+            )
+            outcome.stats["cache"] = {
+                "hit": True,
+                "data_version": data_version,
+                "label": label,
+            }
+            return outcome
+
     bundle = evaluate_candidates(
         session,
         student_row,
@@ -422,6 +467,27 @@ def recommend(
             "source_url": student_row.rank_source_url or "unknown://score_rank_table",
         },
     ]
+
+    # ★ 写持久缓存（ADR-019）：下一次"相似问题"直接复用，跨进程重启也有效
+    if use_cache and cache_key is not None:
+        outcome.stats["cache"] = {
+            "hit": cache_hit,
+            "data_version": cache_service.get_data_version(session),
+            "label": label,
+        }
+        cache_service.cache_put(
+            session,
+            cache_key,
+            data_version=cache_service.get_data_version(session),
+            kind="recommend",
+            label=label,
+            payload={
+                "items": outcome.items,
+                "stats": {k: v for k, v in outcome.stats.items() if k != "cache"},
+                "warnings": outcome.warnings,
+                "evidence": outcome.evidence,
+            },
+        )
     return outcome
 
 

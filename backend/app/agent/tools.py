@@ -25,6 +25,7 @@ from app.core.models import FilterCriteria, ModelParams, StudentProfile, unit_ke
 from app.core.probability import analog_key, estimate_probability, probability_interval
 from app.core.rank import InsufficientRankData, rank_percentile, rank_to_score, score_to_rank
 from app.core.rules import get_rule
+from app.core.scoring import REGION_TOP_COLLEGE_COUNT, level_score, region_strength_index
 from app.db import models as db
 from app.db import repositories as repo
 from app.services import meta_service, plan_service, recommend_service, risk_service, student_service
@@ -547,6 +548,113 @@ def _get_college_profile(ctx: ToolContext, args: Mapping[str, Any]) -> ToolResul
     )
 
 
+def _get_college_level_facts(ctx: ToolContext, args: Mapping[str, Any]) -> ToolResult:
+    """院校层次判别的事实包（ADR-019）—— 供"专家解读"引用，**不含任何 LLM 产生的判断**。
+
+    ★ 为什么需要它：考生最常问"XX 大学怎么样、算不算好学校"，而 985/211/双一流
+    **不是唯一标准**（省重点、行业强校、本地认可度都很重要）。若不给工具，模型只能
+    凭常识答 —— 那正是本项目最不能接受的行为（AGENTS.md §3.3）。
+    本工具返回**可追溯的判据**与 `level_score` 的**来源规则**，让模型"有据可依地解释"，
+    而不是"自己发明一个排名"。
+    """
+    college_id = str(args["college_id"])
+    college = repo.load_colleges(ctx.session).get(college_id)
+    if college is None:
+        raise ToolError("COLLEGE_NOT_FOUND", f"院校库里没有这个 id：{college_id}（不得凭印象描述它）")
+
+    tags = list(college.level_tags)
+    score = level_score(
+        tags, is_public=college.is_public, affiliation=college.affiliation
+    )
+
+    # 判定依据：说明这个分数**是命中哪条规则**得到的（可审计，非模型自述）
+    if "985" in tags:
+        rule = "命中 985 标签 → 1.00"
+    elif "211" in tags:
+        rule = "命中 211 标签 → 0.85"
+    elif "双一流" in tags:
+        rule = "命中 双一流 标签 → 0.75"
+    elif college.affiliation:
+        rule = f"无 985/211/双一流标签，但隶属/属性为「{college.affiliation}」→ 0.60（省重点/部属档）"
+    elif not college.is_public:
+        rule = "民办 / 独立学院 → 0.20"
+    else:
+        rule = "无层次标签、无省重点属性 → 0.45（普通公办本科档）"
+
+    # 考生本省与本地认可度
+    home_province: str | None = None
+    if ctx.student_id:
+        try:
+            home_province = _load_student_profile(ctx).province
+        except ToolError:
+            home_province = None
+    strength = region_strength_index(college.province)
+    is_home = bool(home_province and college.province == home_province)
+
+    caveats: list[str] = []
+    if not tags:
+        caveats.append(
+            "该院校**没有** 985/211/双一流标签 —— 这**不等于层次低**："
+            "省重点、行业特色强校本就不在这些名单里（判据见 level_basis）。"
+        )
+    if not college.is_public:
+        caveats.append(
+            "民办/独立学院：学费通常显著高于公办，必须在推荐卡片上明示（名师铁律 10）。"
+        )
+    if college.affiliation is None and not tags:
+        caveats.append(
+            "院校层次数据缺失（官方投档表不发布层次标签，人工名册也未命中）——"
+            "不得据此推断其水平，只能说明「数据缺失」。"
+        )
+    if strength is None:
+        caveats.append("该省高教资源密度未知（不在统计名册内），不参与地区比较。")
+
+    return ToolResult(
+        name="get_college_level_facts",
+        arguments=args,
+        data={
+            "college_id": college.id,
+            "name": college.name,
+            "province": college.province,
+            "city": college.city,
+            "college_type": college.college_type,
+            # ---- 判据原文（不是模型印象）
+            "level_tags": tags,
+            "affiliation": college.affiliation,
+            "is_public": college.is_public,
+            # ---- 算法算出的分与**它命中的规则**
+            "level_score": score,
+            "level_basis": rule,
+            # ---- 地区维度
+            "region_strength": strength,
+            "region_top_college_count": REGION_TOP_COLLEGE_COUNT.get(college.province or ""),
+            "is_home_province": is_home,
+            "home_province": home_province,
+            # ---- 诚实披露
+            "caveats": caveats,
+            "note": (
+                "level_score 由确定性规则算出（scoring.level_score），"
+                "region_strength 由院校名册统计得出（各省双一流及以上院校数 / 31）。"
+                "两者都不是对单所院校的排名；解释时不得引申为「这所学校排第几」。"
+            ),
+        },
+        evidence=[
+            {"what": "colleges", "college_id": college.id, "source_url": college.source_url},
+            {
+                "what": "level_score_rule",
+                "value": score,
+                "source_url": "rule://docs/DOMAIN_RULES.md#5.1",
+            },
+            {
+                "what": "region_strength",
+                "value": strength,
+                "basis": f"{college.province} 双一流及以上院校 {REGION_TOP_COLLEGE_COUNT.get(college.province or '', '未知')} 所 / 31",
+                "source_url": "rule://docs/DOMAIN_RULES.md#5.3",
+            },
+        ],
+    )
+
+
 def _get_major_profile(ctx: ToolContext, args: Mapping[str, Any]) -> ToolResult:
     major_id = str(args["major_id"])
     major = repo.load_majors(ctx.session).get(major_id)
@@ -792,6 +900,18 @@ _TOOL_LIST: tuple[ToolSpec, ...] = (
         description="查院校档案（层次标签、城市、办学性质、来源）。查不到就说没有，不要凭印象描述。",
         parameters=_obj({"college_id": {"type": "string"}}, ["college_id"]),
         handler=_get_college_profile,
+    ),
+    ToolSpec(
+        name="get_college_level_facts",
+        description=(
+            "查院校**层次判别的事实与依据**：层次标签、隶属属性（如省重点建设高校）、是否公办、"
+            "level_score 及其命中的规则、所在省高教资源密度、是否考生本省。"
+            "★ 考生问「XX大学怎么样/算不算好学校」时必须先调它。"
+            "它回答的是「有哪些可追溯的判据」，**不是**院校排名；"
+            "禁止据此编造名次、就业率或分数线。返回里的 caveats 必须如实转述。"
+        ),
+        parameters=_obj({"college_id": {"type": "string"}}, ["college_id"]),
+        handler=_get_college_level_facts,
     ),
     ToolSpec(
         name="get_major_profile",

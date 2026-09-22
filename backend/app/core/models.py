@@ -364,6 +364,20 @@ class ScoreBreakdown(BaseModel):
     #: NORMAL / ORIENTED / CAMPUS / TRAINING_CLASS / MAJOR_DIRECTION
     direction_kind: str | None = None
 
+    # ---- 地区维度与院校层次判别的**可追溯字段**（ADR-019）
+    #: 该省「高教资源密度」[0,1]（数据驱动，见 scoring.REGION_TOP_COLLEGE_COUNT）；
+    #: None = 省份未知（不猜）
+    region_strength: float | None = None
+    #: 院校所在地是否就是考生本省（本地认可度 1.00 的依据）
+    is_home_province: bool = False
+    #: 院校层次标签原文（如 ["985","211","双一流"]）；空表示**无标签**，
+    #: 不等于"层次低" —— 省重点院校本来就没有这些标签（ADR-019）
+    level_tags: list[str] = Field(default_factory=list)
+    #: 隶属/属性原文（如"省重点建设高校"）；level_score 的判据之一
+    college_affiliation: str | None = None
+    #: 是否公办；False 时必须在卡片明示学费（名师铁律 10）
+    college_is_public: bool | None = None
+
 
 class ScoredUnit(BaseModel):
     """已过滤 + 已算概率 + 已打分的候选（planner 的输入）。"""
@@ -609,8 +623,14 @@ class ModelParams(BaseModel):
         }
     )
     # 全局默认配额（缺省值，ADR-006 后下沉到批次级 BatchRule）
+    #
+    # ★ 2026-09 调整（ADR-019，用户要求）：**冲+稳 = 75%、保+垫 = 25%，且冲 ≈ 稳**。
+    #   原值 25/40/25/10（冲+稳=65%、保+垫=35%）。新值把重心移向"冲稳"，
+    #   同时**保留**垫底下限（min_dian_abs/min_dian_ratio）不被突破 —— 见 planner._allocate。
+    #   浙江 80 个志愿的整数结果：冲 30 / 稳 30 / 保 15 / 垫 5（30+30=60=75%；15+5=20=25%）。
+    #   总志愿数较小时（如上海 24 个）垫底会低于下限，由 planner 从保底调入，属预期行为。
     quota: dict[str, float] = Field(
-        default_factory=lambda: {"CHONG": 0.25, "WEN": 0.40, "BAO": 0.25, "DIAN": 0.10}
+        default_factory=lambda: {"CHONG": 0.375, "WEN": 0.375, "BAO": 0.1875, "DIAN": 0.0625}
     )
 
     # ---- §6.8 安全垫

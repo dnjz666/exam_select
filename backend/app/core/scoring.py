@@ -222,18 +222,86 @@ def major_match_score(
     return major_match_detail(intended, major=major, major_name=major_name)[0]
 
 
-def region_score(intended_regions: Sequence[str], college_province: str | None) -> float:
-    """地区得分（DOMAIN_RULES.md §5.3）：勾选 1.0 / "可接受" 0.5 / 未勾选 0.0。
+def region_score(
+    intended_regions: Sequence[str],
+    college_province: str | None,
+    *,
+    home_province: str | None = None,
+) -> float:
+    """地区得分（DOMAIN_RULES.md §5.3 / ADR-019）。
 
-    未填写意向地区 → 1.00（不限制）。
+    **有意向地区时**（原语义不变）：
+    勾选命中 = 1.00；"可接受" = 0.50；未命中 = 0.00。
+
+    **无意向地区时**（★ ADR-019 变更）：不再一律给 1.00 —— 那等于"地区维度完全不参与排序"，
+    与"考虑考生偏向的地区以及该地区学校的综合实力"相悖。改为按两条**名师实务**规则给分：
+
+    * **本省认可度**：院校所在地 == 考生本省 → **1.00**
+      （本地校友网络、实习与就业半径、省内认可度，是真实存在的优势）；
+    * **地区高教资源密度**：外省 → ``0.55 + 0.30 × region_strength_index(该省)``
+      ∈ [0.55, 0.85]，即**高教资源越密集的地区得分越高**，但仍**低于本省**。
+
+    若连考生本省都不知道（``home_province`` 为空）→ 返回 1.00（不限制，不猜）。
     """
-    if not intended_regions:
+    if intended_regions:
+        if college_province and college_province in intended_regions:
+            return 1.00
+        if "可接受" in intended_regions:
+            return 0.50
+        return 0.00
+
+    # 无意向地区：仅在知道考生本省时才做区分（不知道就不能否决）
+    if not home_province:
         return 1.00
-    if college_province and college_province in intended_regions:
+    if college_province and college_province == home_province:
         return 1.00
-    if "可接受" in intended_regions:
-        return 0.50
-    return 0.00
+    strength = region_strength_index(college_province)
+    if strength is None:
+        # 院校所在地未知 → 给"外省中位"分，不因为缺数据而重罚
+        return REGION_AWAY_BASE + REGION_AWAY_SPAN / 2
+    return REGION_AWAY_BASE + REGION_AWAY_SPAN * strength
+
+
+# ---------------------------------------------------------------------------
+# §5.3 地区高教资源密度（★ ADR-019，数据驱动）
+# ---------------------------------------------------------------------------
+#: 各省「双一流及以上」院校数量 —— **由 `etl/catalog.py` 的人工院校名册统计得出**，
+#: 不是估计值也不是 LLM 判断。统计口径 = tier ∈ {985, 211, SY} 的院校数。
+#: 复算命令见 docs/MAJOR_TAXONOMY.md 同级的 ADR-019；总数 140 所 / 31 省。
+#: 用途：只作为「地区高教资源密度」这一**上下文**维度，**不是**对单所院校的质量判断
+#: （江苏的普通院校并不比甘肃的顶尖院校强——院校层次由 level_score 单独负责）。
+REGION_TOP_COLLEGE_COUNT: dict[str, int] = {
+    "beijing": 31, "shanghai": 14, "jiangsu": 15, "guangdong": 8, "sichuan": 8,
+    "hubei": 7, "shaanxi": 7, "tianjin": 5, "heilongjiang": 4, "hunan": 4,
+    "liaoning": 4, "anhui": 3, "jilin": 3, "shandong": 3, "zhejiang": 3,
+    "chongqing": 2, "fujian": 2, "henan": 2, "shanxi": 2, "xinjiang": 2,
+    "gansu": 1, "guangxi": 1, "guizhou": 1, "hainan": 1, "hebei": 1,
+    "jiangxi": 1, "neimenggu": 1, "ningxia": 1, "qinghai": 1, "xizang": 1,
+    "yunnan": 1,
+}
+
+#: 归一化分母 = 名册里最多的省（北京 31 所）
+REGION_STRENGTH_MAX = 31
+
+#: 外省地区得分 = BASE + SPAN × 密度 ∈ [0.55, 0.85]，**始终低于本省的 1.00**
+REGION_AWAY_BASE = 0.55
+REGION_AWAY_SPAN = 0.30
+
+
+def region_strength_index(province: str | None) -> float | None:
+    """该省「高教资源密度」，归一到 ``[0, 1]``；省份未知/不在名册 → ``None``（不猜）。
+
+    ⚠️ 语义边界：这是**地区整体资源密度**，不是院校质量。
+    浙江只有 3 所双一流（高教资源相对其经济体量偏少），但这**不代表**浙江的省重点
+    院校差 —— 单所院校的质量由 :func:`level_score` 负责，本地认可度由
+    :func:`region_score` 的"本省 1.00"负责。三者刻意分开。
+    """
+    if not province:
+        return None
+    count = REGION_TOP_COLLEGE_COUNT.get(province)
+    if count is None:
+        return None
+    return min(1.0, count / REGION_STRENGTH_MAX)
 
 
 def city_score(city: str | None) -> float:
@@ -315,24 +383,39 @@ def score_unit(
     college: College | None = None,
     major: Major | None = None,
     level_tags: Sequence[str] | None = None,
+    home_province: str | None = None,
 ) -> ScoredUnit:
-    """对一个投档单位打分，返回带 ``score_breakdown`` 的 :class:`ScoredUnit`。"""
+    """对一个投档单位打分，返回带 ``score_breakdown`` 的 :class:`ScoredUnit`。
+
+    :param home_province: 考生**本省**（``StudentProfile.province``）。用于地区维度的
+        「本省认可度」与「地区高教资源密度」（ADR-019）。缺省时地区维度退回"不限制"。
+    """
     preferences = preferences or Preferences()
     tags = level_tags if level_tags is not None else (college.level_tags if college else ())
     taxonomy = resolve_major_taxonomy(major, unit.major_name)
     match_score, match_level = major_match_detail(
         preferences.intended_major_categories, major=major, major_name=unit.major_name
     )
+    college_province = college.province if college else unit.college_id.split("-", 1)[0]
 
     breakdown = ScoreBreakdown(
         region_score=region_score(
-            preferences.intended_regions, (college.province if college else unit.college_id.split("-", 1)[0])
+            preferences.intended_regions, college_province, home_province=home_province
+        ),
+        # ★ 审计字段：地区得分是怎么来的（ADR-019）
+        region_strength=region_strength_index(college_province),
+        is_home_province=bool(
+            home_province and college_province and college_province == home_province
         ),
         college_level_score=level_score(
             tags,
             is_public=college.is_public if college else True,
             affiliation=college.affiliation if college else None,
         ),
+        # 层次判别的依据（★ 不只看 985/211/双一流，ADR-019）
+        level_tags=list(tags),
+        college_affiliation=college.affiliation if college else None,
+        college_is_public=college.is_public if college else None,
         major_match_score=match_score,
         major_match_level=match_level,
         major_discipline=taxonomy.discipline,
@@ -360,6 +443,10 @@ __all__ = [
     "MATCH_LEVEL_NONE",
     "MATCH_LEVEL_NO_INTENT",
     "MATCH_LEVEL_RELATED",
+    "REGION_AWAY_BASE",
+    "REGION_AWAY_SPAN",
+    "REGION_STRENGTH_MAX",
+    "REGION_TOP_COLLEGE_COUNT",
     "RELATED_CATEGORY_MAP",
     "city_score",
     "level_score",
@@ -368,6 +455,7 @@ __all__ = [
     "misc_score",
     "normalize_weights",
     "region_score",
+    "region_strength_index",
     "resolve_major_taxonomy",
     "score_unit",
     "tuition_score",

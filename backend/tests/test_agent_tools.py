@@ -218,6 +218,69 @@ def test_unknown_college_and_major_are_honest(ctx: ToolContext) -> None:
     assert major.ok is False and major.error["code"] == "MAJOR_NOT_FOUND"
 
 
+# ---------------------------------------------------------------------------
+# 院校层次判别的事实包（ADR-019）
+# ---------------------------------------------------------------------------
+def _level_facts(ctx: ToolContext, college_id: str):
+    result = call_tool(ctx, "get_college_level_facts", {"college_id": college_id})
+    assert result.ok, result.error
+    return result
+
+
+def test_level_facts_tool_is_registered_and_sourced(ctx: ToolContext) -> None:
+    assert "get_college_level_facts" in TOOL_REGISTRY
+    search = call_tool(ctx, "search_units", {"province": "zhejiang", "year": CURRENT_YEAR, "limit": 5})
+    unit = search.data["units"][0]
+    result = _level_facts(ctx, unit["college_id"])
+    data = result.data
+    for field in (
+        "level_tags", "affiliation", "is_public", "level_score", "level_basis",
+        "region_strength", "is_home_province", "caveats",
+    ):
+        assert field in data, f"缺少字段 {field}"
+    assert result.evidence, "工具必须带证据链（§9.1）"
+    assert any(e["what"] == "level_score_rule" for e in result.evidence)
+    assert all("source_url" in e for e in result.evidence)
+
+
+def test_level_facts_never_claims_a_ranking(ctx: ToolContext) -> None:
+    """★ 红线：工具只能说"有哪些判据"，不能给院校排名。"""
+    search = call_tool(ctx, "search_units", {"province": "zhejiang", "year": CURRENT_YEAR, "limit": 5})
+    data = _level_facts(ctx, search.data["units"][0]["college_id"]).data
+    assert "排名" not in data
+    assert "rank" not in data
+    assert "不得" in data["note"]
+
+
+def test_level_facts_explains_absence_of_tags(ctx: ToolContext) -> None:
+    """无 985/211 标签的院校必须给出"不等于层次低"的提示，而不是默默给低分。"""
+    search = call_tool(ctx, "search_units", {"province": "zhejiang", "year": CURRENT_YEAR, "limit": 200})
+    for unit in search.data["units"]:
+        data = _level_facts(ctx, unit["college_id"]).data
+        if not data["level_tags"]:
+            assert any("不等于层次低" in c for c in data["caveats"]), data
+            return
+    pytest.fail("样本里应存在无层次标签的院校")
+
+
+def test_level_facts_provincial_key_scores_above_plain_public(ctx: ToolContext) -> None:
+    """省重点院校（无 985/211 标签）应拿 0.60，高于普通公办的 0.45。"""
+    search = call_tool(ctx, "search_units", {"province": "zhejiang", "year": CURRENT_YEAR, "limit": 300})
+    for unit in search.data["units"]:
+        data = _level_facts(ctx, unit["college_id"]).data
+        if data["affiliation"] and "省重点" in data["affiliation"] and not data["level_tags"]:
+            assert data["level_score"] == 0.60
+            assert "省重点" in data["level_basis"]
+            return
+    pytest.fail("样本里应存在省重点院校")
+
+
+def test_level_facts_unknown_college_is_honest(ctx: ToolContext) -> None:
+    result = call_tool(ctx, "get_college_level_facts", {"college_id": "zzz-9999"})
+    assert result.ok is False
+    assert result.error["code"] == "COLLEGE_NOT_FOUND"
+
+
 def test_list_missing_fields(ctx: ToolContext) -> None:
     result = call_tool(ctx, "list_missing_fields", {})
     assert result.ok
