@@ -25,7 +25,12 @@ from app.core.models import FilterCriteria, ModelParams, StudentProfile, unit_ke
 from app.core.probability import analog_key, estimate_probability, probability_interval
 from app.core.rank import InsufficientRankData, rank_percentile, rank_to_score, score_to_rank
 from app.core.rules import get_rule
-from app.core.scoring import REGION_TOP_COLLEGE_COUNT, level_score, region_strength_index
+from app.core.scoring import (
+    REGION_STRENGTH_MAX,
+    REGION_TOP_COLLEGE_COUNT,
+    level_score,
+    region_strength_index,
+)
 from app.db import models as db
 from app.db import repositories as repo
 from app.services import meta_service, plan_service, recommend_service, risk_service, student_service
@@ -628,6 +633,8 @@ def _get_college_level_facts(ctx: ToolContext, args: Mapping[str, Any]) -> ToolR
             # ---- 地区维度
             "region_strength": strength,
             "region_top_college_count": REGION_TOP_COLLEGE_COUNT.get(college.province or ""),
+            # ★ 归一化分母也由工具给出，避免叙述器**硬编码领域常量**（实测被测试抓到）
+            "region_top_college_count_max": REGION_STRENGTH_MAX,
             "is_home_province": is_home,
             "home_province": home_province,
             # ---- 诚实披露

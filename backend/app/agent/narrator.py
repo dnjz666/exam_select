@@ -190,6 +190,64 @@ def narrate_history(data: Mapping[str, Any], entity_name: str) -> str:
     return "\n".join(lines)
 
 
+def narrate_college_level(data: Mapping[str, Any]) -> str:
+    """院校层次判别的**专家口吻解读**（ADR-019）。
+
+    ★ 红线：本函数**只转述工具返回值**，不新增任何数字、不给排名、不下"好/差"结论。
+    它的价值在于把 `level_basis`（命中了哪条规则）与 `caveats`（诚实缺口）讲清楚，
+    并说明"985/211/双一流不是唯一标准"这件事——这正是考生最需要被纠正的认知。
+    """
+    name = str(data.get("name") or "该院校")
+    tags = list(data.get("level_tags") or [])
+    affiliation = data.get("affiliation")
+    is_public = data.get("is_public")
+    score = data.get("level_score")
+    basis = str(data.get("level_basis") or "")
+    strength = data.get("region_strength")
+    top_count = data.get("region_top_college_count")
+    is_home = bool(data.get("is_home_province"))
+    province = data.get("province")
+    city = data.get("city")
+
+    lines: list[str] = [
+        f"{name}（{province_name(province)}·{city or '—'}）的层次判据："
+    ]
+    lines.append(f"- 层次标签：{'、'.join(tags) if tags else '无（没有 985/211/双一流 标签）'}")
+    lines.append(f"- 隶属/属性：{affiliation or '未收录'}")
+    lines.append(f"- 办学性质：{'公办' if is_public else '民办 / 独立学院'}")
+    if isinstance(score, (int, float)):
+        lines.append(f"- 层次得分：{score:.2f}（判据：{basis}）")
+    else:
+        lines.append(f"- 层次得分：数据缺失（判据：{basis}）")
+
+    # 地区维度：只讲"地区资源"，不讲"这所学校排第几"
+    # ★ 分母取自工具返回值，**不在叙述器里硬编码**（否则就是叙述器私自引入领域常量）
+    if isinstance(strength, (int, float)) and top_count is not None:
+        max_count = data.get("region_top_college_count_max")
+        denominator = f" / {max_count}" if isinstance(max_count, int) else ""
+        lines.append(
+            f"- 所在省高教资源密度：{strength:.2f}"
+            f"（该省双一流及以上院校 {top_count} 所{denominator}，"
+            "用于地区比较，**不是**该校排名）"
+        )
+    if is_home:
+        lines.append("- 这是你本省的院校：省内认可度、实习与就业半径通常更有优势。")
+
+    for caveat in data.get("caveats") or []:
+        lines.append(f"⚠️ {caveat}")
+
+    note = data.get("note")
+    if note:
+        lines.append(str(note))
+    lines.append(
+        "要判断「能不能上」，得看它在**你省**的投档位次——说出你的省份和位次，我查历史记录。"
+    )
+    source = _source_of(data.get("_evidence"))
+    if source:
+        lines.append(f"来源：{source}")
+    return "\n".join(lines)
+
+
 def narrate_probability(data: Mapping[str, Any], entity_name: str) -> str:
     if data.get("probability") is None:
         return (
@@ -337,6 +395,7 @@ __all__ = [
     "MISSING_FIELD_LABELS",
     "PROVINCE_NAMES",
     "province_name",
+    "narrate_college_level",
     "narrate_history",
     "narrate_missing",
     "narrate_no_data",

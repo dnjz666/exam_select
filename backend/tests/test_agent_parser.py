@@ -130,6 +130,17 @@ def test_build_questions_ignores_unknown_fields() -> None:
         ("帮我把分数换算成位次", "rank"),
         ("谢谢", "thanks"),
         ("今天天气不错", "unknown"),
+        # ★ ADR-019：院校层次/实力类问题必须与"多少分"分流
+        ("浙江工业大学怎么样", "college_level"),
+        ("浙江工业大学算不算好学校", "college_level"),
+        ("杭州电子科技大学什么水平", "college_level"),
+        ("这所学校实力如何", "college_level"),
+        ("浙工大值得报吗", "college_level"),
+        # ★ 回归：问分数/历史仍是 history，不能被 college_level 抢走
+        ("浙江工业大学分数线", "history"),
+        ("浙江工业大学去年录取线多少分", "history"),
+        # ★ 回归：问志愿规则仍是 rule
+        ("浙江最多能填几个志愿", "rule"),
     ],
 )
 def test_detect_intent(text: str, expected: str) -> None:

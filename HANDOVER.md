@@ -40,9 +40,10 @@
 ② 地区维度原先对"未填意向"恒为常数：现按**本省认可度 1.00** + **地区高教资源密度**
 （数据驱动：各省双一流及以上院校数 / 31）区分；浙工大在同层排名由第 173 → **第 68**。
 ③ agent 新增第 **13** 个只读工具 `get_college_level_facts`（判据 + `level_score` 的来源规则 +
-caveats，**刻意不给排名**）。④ `recommend` 结果**持久缓存**（`result_cache` + `app_meta.data_version`），
-同位次同筛选可跨考生、跨重启复用。⑤ 配额改为 **冲+稳 = 75%（冲≈稳）、保+垫 = 25%**
-（浙江 80 → 冲 30 / 稳 30 / 保 15 / 垫 5）。
+caveats，**刻意不给排名**）；并补全**意图路由**——原先"XX大学怎么样"落到 `unknown`、
+被当成"问分数线"回答，工具**注册了但走不到**（见 ADR-019 补充）。④ `recommend` 结果**持久缓存**
+（`result_cache` + `app_meta.data_version`），同位次同筛选可跨考生、跨重启复用。
+⑤ 配额改为 **冲+稳 = 75%（冲≈稳）、保+垫 = 25%**（浙江 80 → 冲 30 / 稳 30 / 保 15 / 垫 5）。
 
 **必读**：`docs/DECISIONS.md` **ADR-019**。
 
@@ -309,6 +310,7 @@ L1 backend/app/etl/**  synthetic.py（确定性模拟，seed 固定）
 | **规则库 JSON 重复键检测/消解** | `scripts/dedupe_major_taxonomy.py`（详见 ADR-018 补充） |
 | **持久结果缓存（相似查询复用）** | `backend/app/services/cache_service.py`（+ `tests/test_cache_service.py`） |
 | **院校层次事实工具（agent 第 13 个）** | `backend/app/agent/tools.py::_get_college_level_facts` |
+| **层次问答的意图路由与叙述** | `parser.py`（`college_level` 意图）· `chat_service._answer_about_school_level` · `narrator.narrate_college_level`（+ `tests/test_agent_college_level.py`） |
 | 全部决策与被否决方案、各轮验收记录 | `docs/DECISIONS.md`（ADR-001…ADR-018） |
 | **M6.5 专业目录归属缺陷与四级规则库** | `docs/DECISIONS.md` **ADR-018** |
 | **M6 真实数据接入的设计、五个实测缺陷、性能复盘** | `docs/DECISIONS.md` **ADR-015** |

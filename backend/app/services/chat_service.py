@@ -225,6 +225,42 @@ def _answer_about_school(
     )
 
 
+def _answer_about_school_level(
+    ctx: ToolContext,
+    records: list[ToolCallRecord],
+    college_id: str | None,
+    college_name: str | None,
+) -> str:
+    """回答"某校怎么样 / 算不算好学校"（ADR-019）。
+
+    ★ 与 :func:`_answer_about_school` 的分工：那个答"多少分"（历史位次），
+    这个答"什么层次"（判据 + level_score 的来源规则）。
+    考生问"浙工大怎么样"却收到一串位次数字，就是答非所问（实测踩到）。
+
+    ★ 红线：**只转述工具返回的判据**，不给排名、不下"好/差"结论、不编就业率。
+    库里没有这所学校时诚实回绝（绝不套用相似名字）。
+    """
+    if not college_name:
+        return narrator.narrate_no_data(
+            "这所院校的层次",
+            "我没有在院校库里匹配到具体校名；说个完整校名我再查",
+        )
+    if college_id is None:
+        return narrator.narrate_no_data(
+            f"{college_name} 的层次判据",
+            "本系统院校库里没有这所学校，所以它的层次、标签我一个都给不出",
+        )
+    result = _run(ctx, records, "get_college_level_facts", {"college_id": college_id})
+    if not result.ok:
+        return narrator.narrate_no_data(
+            f"{college_name} 的层次判据", (result.error or {}).get("message", "")
+        )
+    # 把证据链一起交给叙述器（工具返回值里的 source_url 要能透出到回答里）
+    payload = dict(result.data)
+    payload["_evidence"] = list(result.evidence or [])
+    return narrator.narrate_college_level(payload)
+
+
 def _deterministic_text(
     ctx: ToolContext,
     records: list[ToolCallRecord],
@@ -244,6 +280,12 @@ def _deterministic_text(
     school_id, school_token = find_school_mention(message, catalog)
     # 但如果考生在这句话里报了分数/位次，那是在补档案，不能拿校名把话岔开
     reports_own_data = bool(parsed.fields.get("total_score") or parsed.fields.get("rank"))
+
+    # ★ ADR-019：先分流"这所学校怎么样（层次/实力）"与"这所学校多少分（历史）"。
+    #   两者都必须先有校名；问层次时不能拿位次数字糊弄（考生问的是"算不算好学校"）。
+    if school_token and not reports_own_data and intent == "college_level":
+        return _answer_about_school_level(ctx, records, school_id, school_token)
+
     if school_token and not reports_own_data and intent in ("history", "rank", "unknown", "recommend"):
         return _answer_about_school(ctx, records, school_id, school_token, province)
 
