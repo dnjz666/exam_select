@@ -111,10 +111,12 @@ CITY_TIERS: dict[str, str] = {
 }
 
 # ---------------------------------------------------------------------------
-# §5.4 学费
+# §5.4 学费 —— ★ ADR-022：学费的**打分维度已移除**
 # ---------------------------------------------------------------------------
-TUITION_SCORE_COMFORTABLE = 1.00
-TUITION_SCORE_FLOOR = 0.30
+# 用户要求：学费不再是筛选条件、也不再参与效用打分。
+# 但 `AdmissionUnit.tuition` 数据与卡片/报告上的学费展示**保留** ——
+# 名师铁律 10 仍要求中外合作 / 民办 / 独立学院的学费必须在卡片上明示。
+# 因此这里不再有 TUITION_SCORE_* 常量，也不再提供 tuition_score()。
 
 
 def level_score(
@@ -310,33 +312,6 @@ def city_score(city: str | None) -> float:
     return CITY_TIER_SCORES[tier]
 
 
-def tuition_score(
-    tuition: int,
-    *,
-    budget_comfortable: int | None = None,
-    budget_max: int | None = None,
-) -> float:
-    """学费得分（DOMAIN_RULES.md §5.4）。
-
-    ``≤ comfortable`` → 1.00；``comfortable < t ≤ max`` → 线性降到 0.30；
-    ``> max`` → 0.00（硬约束剔除由 filters.py 负责，这里只打分）。
-    未设预算 → 1.00（不限制）。
-    """
-    if budget_max is None and budget_comfortable is None:
-        return TUITION_SCORE_COMFORTABLE
-    if budget_comfortable is not None and tuition <= budget_comfortable:
-        return TUITION_SCORE_COMFORTABLE
-    if budget_max is None:
-        return TUITION_SCORE_COMFORTABLE
-    if tuition > budget_max:
-        return 0.00
-    lower = budget_comfortable if budget_comfortable is not None else 0
-    if budget_max <= lower:
-        return TUITION_SCORE_FLOOR
-    ratio = (tuition - lower) / (budget_max - lower)
-    return max(TUITION_SCORE_FLOOR, TUITION_SCORE_COMFORTABLE - ratio * (TUITION_SCORE_COMFORTABLE - TUITION_SCORE_FLOOR))
-
-
 def misc_score(college: College | None) -> float:
     """其他加分项（保研率 / 硕士点 / 博士点），归一后加权。"""
     if college is None:
@@ -348,12 +323,14 @@ def misc_score(college: College | None) -> float:
 
 
 def normalize_weights(preferences: Preferences) -> dict[str, float]:
-    """权重归一化到 1.0；全为 0 时退化为等权（§6.5）。"""
+    """权重归一化到 1.0；全为 0 时退化为等权（§6.5）。
+
+    ★ ADR-022：学费维度已移除（用户要求），现在是 **5 个维度**。
+    """
     raw: dict[str, float] = {
         "region": max(0.0, preferences.weight_region),
         "college_level": max(0.0, preferences.weight_college_level),
         "major": max(0.0, preferences.weight_major),
-        "tuition": max(0.0, preferences.weight_tuition),
         "city": max(0.0, preferences.weight_city),
         "misc": max(0.0, preferences.weight_misc),
     }
@@ -365,12 +342,11 @@ def normalize_weights(preferences: Preferences) -> dict[str, float]:
 
 
 def utility_of(breakdown: ScoreBreakdown, weights: Mapping[str, float]) -> float:
-    """``utility = Σ w_k · score_k``。"""
+    """``utility = Σ w_k · score_k``（学费维度已移除，ADR-022）。"""
     return (
         weights.get("region", 0.0) * breakdown.region_score
         + weights.get("college_level", 0.0) * breakdown.college_level_score
         + weights.get("major", 0.0) * breakdown.major_match_score
-        + weights.get("tuition", 0.0) * breakdown.tuition_score
         + weights.get("city", 0.0) * breakdown.city_score
         + weights.get("misc", 0.0) * breakdown.misc_score
     )
@@ -422,11 +398,6 @@ def score_unit(
         major_category=taxonomy.category,
         admission_direction=taxonomy.direction,
         direction_kind=taxonomy.direction_kind,
-        tuition_score=tuition_score(
-            unit.tuition,
-            budget_comfortable=preferences.budget_comfortable,
-            budget_max=preferences.budget_max,
-        ),
         city_score=city_score(college.city if college else unit.campus),
         misc_score=misc_score(college),
     )
@@ -458,6 +429,5 @@ __all__ = [
     "region_strength_index",
     "resolve_major_taxonomy",
     "score_unit",
-    "tuition_score",
     "utility_of",
 ]

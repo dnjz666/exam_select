@@ -40,10 +40,16 @@ def generate_plan(payload: PlanGenerateRequest, session: DbDep) -> Envelope[dict
     if row is None:
         raise HTTPException(status_code=404, detail=f"档案不存在：{payload.student_id}")
 
+    # ★ ADR-022：不显式传筛选时，由服务层**按档案偏好**推导 ——
+    #   "志愿表直接按筛选与偏好生成"就落在这里（推荐与志愿表同一份口径）。
+    filters = payload.filters
+    explicit = bool(
+        filters.regions or filters.levels or filters.majors or filters.exclude_unit_ids
+    )
     bundle = plan_service.generate(
         session,
         row,
-        criteria=payload.filters.to_criteria(),
+        criteria=filters.to_criteria() if explicit else None,
         weights=payload.weights,
         plan_id=payload.plan_id,
         preference_order=payload.preference_order,

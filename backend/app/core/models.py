@@ -136,21 +136,32 @@ class PhysicalExam(BaseModel):
 class Preferences(BaseModel):
     """偏好（软约束输入，AGENTS.md §6.5）。
 
-    权重默认等权（各 1/6，归一化到 1.0，§6.5 "默认等权"），由考生在 UI 调整。
+    ★ ADR-022：偏好是**意向的唯一来源** —— 建档向导第 4 步填一次，持久化到档案，
+    推荐与志愿表都直接按它生成，不再让考生在推荐页重填一遍。
+
+    权重默认等权（各 1/5，归一化到 1.0，§6.5 "默认等权"），由考生在 UI 调整。
+    ★ 学费维度已移除（用户要求）：学费不再参与效用打分；但 ``AdmissionUnit.tuition``
+    与卡片/报告上的学费展示**保留**（名师铁律 10）。
     """
 
-    intended_regions: list[str] = Field(default_factory=list)  # 意向省份
-    intended_major_categories: list[str] = Field(default_factory=list)  # 意向专业类/门类
+    #: 意向省份（软偏好；``intent_as_hard`` 为真时升级为硬约束）
+    intended_regions: list[str] = Field(default_factory=list)
+    #: 意向院校层次标签，如 ``["985", "211", "双一流"]``（ADR-022 从推荐页移入档案）
+    intended_levels: list[str] = Field(default_factory=list)
+    #: 意向专业：可混合填 **门类 / 专业类 / 专业名**（与规则库分级一致，见
+    #: ``docs/MAJOR_TAXONOMY.md``）；``scoring.major_match_detail`` 按
+    #: 1.00（专业名）/0.80（专业类）/0.55（门类）三档打分。
+    intended_major_categories: list[str] = Field(default_factory=list)
     excluded_majors: list[str] = Field(default_factory=list)  # 明确排斥的专业（GROUP_UNACCEPTABLE 依据）
-    budget_comfortable: int | None = None  # 学费舒适上限（元/年）
-    budget_max: int | None = None  # 学费硬上限（元/年，视为 filters 硬约束）
+    #: 是否把上面的意向**当作硬约束**（直接过滤掉不符合的单位）。
+    #: False（默认）= 只影响排序（软偏好 §6.5）。
+    intent_as_hard: bool = False
 
-    weight_region: float = 1 / 6
-    weight_college_level: float = 1 / 6
-    weight_major: float = 1 / 6
-    weight_tuition: float = 1 / 6
-    weight_city: float = 1 / 6
-    weight_misc: float = 1 / 6
+    weight_region: float = 1 / 5
+    weight_college_level: float = 1 / 5
+    weight_major: float = 1 / 5
+    weight_city: float = 1 / 5
+    weight_misc: float = 1 / 5
 
     model_config = ConfigDict(frozen=False)
 
@@ -347,9 +358,10 @@ class ScoreBreakdown(BaseModel):
     region_score: float = 0.0
     college_level_score: float = 0.0
     major_match_score: float = 0.0
-    tuition_score: float = 0.0
     city_score: float = 0.0
     misc_score: float = 0.0
+    # ★ ADR-022：`tuition_score` 已移除（学费不再参与效用打分）。
+    #   学费数据本身（`AdmissionUnit.tuition`）与展示**保留**（名师铁律 10）。
 
     # ---- 专业匹配的**可追溯字段**（ADR-018 四级专业分类）
     #: 命中的匹配层级：EXACT_MAJOR / SAME_DISCIPLINE / SAME_CATEGORY /
@@ -469,12 +481,17 @@ class RejectionReason(BaseModel):
 
 
 class FilterCriteria(BaseModel):
-    """考生在推荐页设置的硬性筛选条件（软偏好之外的"一票否决"项）。"""
+    """**硬性**筛选条件（软偏好之外的"一票否决"项）。
+
+    ★ ADR-022：这些条件现在**默认来自考生档案里的偏好**（建档向导第 4 步），
+    推荐页不再单独维护一份；``intent_as_hard`` 决定意向是否升级为硬约束。
+    学费上限已移除（用户要求：学费不再是筛选/偏好维度，但**学费数据与展示保留**，
+    名师铁律 10 仍然要求中外合作/民办在卡片上明示学费）。
+    """
 
     regions: list[str] = Field(default_factory=list)  # 意向省份；空 = 不限
     levels: list[str] = Field(default_factory=list)  # 层次标签，如 ["985","211"]；空 = 不限
-    major_categories: list[str] = Field(default_factory=list)  # 意向门类；空 = 不限
-    tuition_max: int | None = None  # 学费硬上限（元/年）
+    major_categories: list[str] = Field(default_factory=list)  # 意向门类/专业类/专业名；空 = 不限
     exclude_unit_ids: list[str] = Field(default_factory=list)  # 手动排除
 
 

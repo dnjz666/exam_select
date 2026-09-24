@@ -17,7 +17,6 @@ from app.core.filters import (
     SINGLE_SUBJECT_UNKNOWN,
     SUBJECT_NOT_MATCHED,
     TRACK_MISMATCH,
-    TUITION_LIMIT,
     UNIT_WITHDRAWN,
     YEAR_MISMATCH,
     check_unit,
@@ -132,13 +131,18 @@ def test_fresh_graduate_and_political() -> None:
     )
 
 
-def test_tuition_withdrawn_and_manual_exclusion() -> None:
+def test_tuition_is_not_a_hard_constraint_anymore() -> None:
+    """★ ADR-022：学费不再是筛选条件（用户要求）。
+
+    高学费单位**不再**被剔除；学费只在展示层出现（卡片/志愿表/报告 + 非公办标记）。
+    """
     student = make_student()
-    assert (
-        check_unit(make_unit(tuition=45000), student, criteria=FilterCriteria(tuition_max=20000)).rule_code
-        == TUITION_LIMIT
-    )
-    assert check_unit(make_unit(tuition=45000), student) is None  # 未设上限则不限制
+    assert check_unit(make_unit(tuition=45000), student) is None, "学费不应再否决单位"
+    assert check_unit(make_unit(tuition=200000), student) is None
+
+
+def test_withdrawn_and_manual_exclusion() -> None:
+    student = make_student()
     assert check_unit(make_unit(is_withdrawn=True), student).rule_code == UNIT_WITHDRAWN
     unit = make_unit()
     assert (

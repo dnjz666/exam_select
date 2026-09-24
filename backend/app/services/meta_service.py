@@ -13,9 +13,13 @@
 
 from __future__ import annotations
 
+from collections import Counter
+
 from sqlalchemy.orm import Session
 
 from app.core.filters import subject_matches
+from app.core.major_taxonomy import SOURCE as TAXONOMY_SOURCE
+from app.core.major_taxonomy_data import BENKE_CATEGORIES
 from app.core.models import ModelParams
 from app.core.rules import PROVINCES, all_rules, get_rule
 from app.db import repositories as repo
@@ -225,11 +229,51 @@ def tiers_meta(params: ModelParams | None = None) -> dict:
     }
 
 
+def major_taxonomy_meta(session: Session) -> dict:
+    """专业分类规则库的前两级（门类 → 专业类），供意向专业分级选择（ADR-022）。
+
+    ★ 为什么由后端给：意向专业要"同规则库中一样细分"，而规则库的唯一权威来源是
+    ``core/major_taxonomy``（= ``docs/MAJOR_TAXONOMY.md``）。前端自己列一份必然漂移，
+    而且**专业类**这一级前端根本无从得知。
+
+    ``major_count`` 用**当前库里的真实专业名数**统计（不是规则库的理论条目数），
+    让考生一眼看出哪些专业类在本省真的可选 —— 数据为空的专业类不给假选项。
+    """
+    counts: Counter[str] = Counter()
+    for major in repo.load_majors(session).values():
+        if major.discipline:
+            counts[major.discipline] += 1
+
+    categories = []
+    for category, disciplines in BENKE_CATEGORIES.items():
+        categories.append(
+            {
+                "name": category,
+                "disciplines": [
+                    {"name": name, "major_count": counts.get(name, 0)}
+                    for name in disciplines
+                ],
+            }
+        )
+    return {
+        "categories": categories,
+        "source_url": str(TAXONOMY_SOURCE.get("benke_source_url", "")),
+        "version": str(TAXONOMY_SOURCE.get("version", "")),
+        "note": (
+            "门类 → 专业类来自教育部本科专业目录（docs/MAJOR_TAXONOMY.md）；"
+            "选中后写入 preferences.intended_major_categories（可混合填 门类/专业类/专业名）。"
+            "第三级「专业名」走 GET /majors/search?discipline=…。"
+            "招生方向（如中外合作办学）不作为意向 —— 它是筛选维度。"
+        ),
+    }
+
+
 __all__ = [
     "BANNER_STATUSES",
     "POOL_ORIGIN_DATA_DERIVED",
     "POOL_ORIGIN_RULE",
     "PROVINCES",
+    "major_taxonomy_meta",
     "province_rule_meta",
     "provinces_meta",
     "subject_coverage",

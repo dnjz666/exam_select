@@ -13,6 +13,7 @@ from fastapi import APIRouter, Query
 from app.api.deps import DbDep
 from app.api.schemas import (
     Envelope,
+    MajorTaxonomyPayload,
     ProvinceMeta,
     SubjectCoveragePayload,
     TiersPayload,
@@ -140,6 +141,33 @@ def get_tiers() -> Envelope[dict]:
     return Envelope[dict](
         data=meta_service.tiers_meta(),
         evidence=[{"what": "model_params", "source": "docs/DOMAIN_RULES.md §3"}],
+        warnings=[],
+    )
+
+
+@router.get(
+    "/major-taxonomy",
+    response_model=Envelope[MajorTaxonomyPayload],
+    summary="专业分类规则库（门类 → 专业类，供意向专业分级选择）",
+)
+def get_major_taxonomy(session: DbDep) -> Envelope[dict]:
+    """四级专业分类规则库的**前两级**（门类 → 专业类），供前端做分级选择。
+
+    ★ 为什么由后端给（ADR-022）：意向专业要"同规则库中一样细分"，而规则库的
+    唯一权威来源是 `core/major_taxonomy`（`data/taxonomy/major_taxonomy.json`）。
+    前端自己列一份门类必然与规则库漂移；且**专业类**这一级前端根本无从得知。
+
+    返回的 `categories[].disciplines[]` 就是 `major_match_detail` 的
+    0.55（门类）/ 0.80（专业类）两档判据；考生选中后写进
+    `preferences.intended_major_categories`（该字段本就允许混合填 门类/专业类/专业名）。
+
+    第三级「专业名」走既有的 `GET /majors/search?discipline=...`。
+    招生方向（如"中外合作办学"）**不作为意向**：它是筛选维度，见 docs/MAJOR_TAXONOMY.md §1。
+    """
+    data = meta_service.major_taxonomy_meta(session)
+    return Envelope[dict](
+        data=data,
+        evidence=[{"what": "major_taxonomy", "source_url": data.get("source_url")}],
         warnings=[],
     )
 

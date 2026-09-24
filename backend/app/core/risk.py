@@ -40,7 +40,9 @@ SINGLE_YEAR_DATA = "SINGLE_YEAR_DATA"
 NO_OBEDIENCE = "NO_OBEDIENCE"
 GROUP_UNACCEPTABLE = "GROUP_UNACCEPTABLE"
 PHYSICAL_LIMIT = "PHYSICAL_LIMIT"
-TUITION_HIGH = "TUITION_HIGH"
+#: ★ ADR-022：`TUITION_HIGH` 已移除 —— 它依赖"预算舒适线"，
+#: 而预算输入随学费维度一并删除后该风险不再有判据。
+#: 风险码表由 14 码降为 13 码（见 AGENTS.md §6.8 与 DECISIONS ADR-022）。
 SUSPECT_DATA = "SUSPECT_DATA"
 COLLECTED_ONLY = "COLLECTED_ONLY"
 
@@ -56,7 +58,6 @@ ALL_RISK_CODES: tuple[str, ...] = (
     NO_OBEDIENCE,
     GROUP_UNACCEPTABLE,
     PHYSICAL_LIMIT,
-    TUITION_HIGH,
     SUSPECT_DATA,
     COLLECTED_ONLY,
 )
@@ -339,18 +340,9 @@ def scan_risks(
                 )
                 break
 
-        # 学费超预算
-        comfortable = student.preferences.budget_comfortable
-        if comfortable is not None and unit.tuition > comfortable:
-            risks.append(
-                Risk(
-                    code=TUITION_HIGH,
-                    level=RiskLevel.LOW,
-                    unit_id=unit.unit_id,
-                    message=f"学费 {unit.tuition:,} 元/年 超过预算舒适线 {comfortable:,} 元/年",
-                    suggestion="确认家庭可承受四年总投入后再填；中外合作/民办尤需注意。",
-                )
-            )
+        # 学费超预算 —— ★ ADR-022 已移除：预算输入随学费维度一并删除，
+        # 该风险不再有判据。铁律 10（学费必须让家长看见）由展示层保证：
+        # 卡片/志愿表/报告都显示学费，并对非公办院校打「非公办」标记。
 
     risks.sort(key=lambda r: (0 if r.level is RiskLevel.HIGH else 1 if r.level is RiskLevel.MEDIUM else 2, r.code))
     return risks
@@ -378,7 +370,6 @@ __all__ = [
     "SAFETY_NOT_SAFE",
     "SINGLE_YEAR_DATA",
     "SUSPECT_DATA",
-    "TUITION_HIGH",
     "VOLATILE_HISTORY",
     "level_rank",
     "risk_summary",

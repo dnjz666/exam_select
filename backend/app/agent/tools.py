@@ -149,13 +149,23 @@ def _profile_unit(ctx: ToolContext, unit_id: str):
     raise ToolError("UNIT_NOT_FOUND", f"查不到这个投档单位：{unit_id}")
 
 
-def _criteria(filters: Mapping[str, Any] | None) -> FilterCriteria:
+def _criteria(filters: Mapping[str, Any] | None) -> FilterCriteria | None:
+    """把工具入参转成硬约束；**没有任何条件时返回 ``None``**。
+
+    ★ ADR-022：返回 ``None`` 表示"按档案偏好生成"（推荐/志愿表的默认语义）。
+    若这里硬造一个空 ``FilterCriteria()``，就会**覆盖**掉档案里的意向，
+    让"志愿表直接按筛选与偏好生成"失效。
+    """
     filters = filters or {}
+    regions = list(filters.get("regions") or [])
+    levels = list(filters.get("levels") or [])
+    majors = list(filters.get("majors") or [])
+    if not (regions or levels or majors):
+        return None
     return FilterCriteria(
-        regions=list(filters.get("regions") or []),
-        levels=list(filters.get("levels") or []),
-        major_categories=list(filters.get("majors") or []),
-        tuition_max=filters.get("tuition_max"),
+        regions=regions,
+        levels=levels,
+        major_categories=majors,
         exclude_unit_ids=[],
     )
 
@@ -857,7 +867,6 @@ _TOOL_LIST: tuple[ToolSpec, ...] = (
                         "regions": {"type": "array", "items": {"type": "string"}},
                         "levels": {"type": "array", "items": {"type": "string"}},
                         "majors": {"type": "array", "items": {"type": "string"}},
-                        "tuition_max": {"type": "integer"},
                     }
                 ),
                 "limit": {"type": "integer"},
@@ -882,7 +891,6 @@ _TOOL_LIST: tuple[ToolSpec, ...] = (
                         "regions": {"type": "array", "items": {"type": "string"}},
                         "levels": {"type": "array", "items": {"type": "string"}},
                         "majors": {"type": "array", "items": {"type": "string"}},
-                        "tuition_max": {"type": "integer"},
                     }
                 ),
             },

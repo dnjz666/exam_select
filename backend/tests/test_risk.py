@@ -25,7 +25,6 @@ from app.core.risk import (
     SAFETY_NOT_SAFE,
     SINGLE_YEAR_DATA,
     SUSPECT_DATA,
-    TUITION_HIGH,
     VOLATILE_HISTORY,
     risk_summary,
     scan_risks,
@@ -70,9 +69,14 @@ def _safe_units(count: int, *, rank: int = 20000, tier: Tier = Tier.DIAN, **kwar
     return items
 
 
-def test_all_fourteen_codes_declared() -> None:
-    assert len(ALL_RISK_CODES) == 14
-    assert len(set(ALL_RISK_CODES)) == 14
+def test_all_thirteen_codes_declared() -> None:
+    """★ ADR-022：风险码表由 14 码降为 **13 码**（移除 `TUITION_HIGH`）。
+
+    它依赖"预算舒适线"，而学费预算随学费维度一并删除后该风险不再有判据；
+    铁律 10（学费必须让家长看见）改由展示层保证。
+    """
+    assert len(ALL_RISK_CODES) == 13
+    assert len(set(ALL_RISK_CODES)) == 13
 
 
 def test_clean_parallel_plan_has_no_high_risks() -> None:
@@ -233,13 +237,18 @@ def test_no_obedience_and_group_unacceptable() -> None:
     assert GROUP_UNACCEPTABLE in codes
 
 
-def test_physical_limit_and_tuition_high() -> None:
+def test_physical_limit_is_reported() -> None:
+    """体检受限必须是 HIGH 风险。
+
+    ★ ADR-022：`TUITION_HIGH` 已移除 —— 它依赖"预算舒适线"，而预算输入随学费维度
+    一并删除后该风险不再有判据。铁律 10（学费必须让家长看见）由**展示层**保证：
+    卡片/志愿表/报告都显示学费，并对非公办院校打「非公办」标记。
+    """
     batch = ZJ.main_batch()
     unit = make_unit(college="4101", tuition=45000, physical_requirements=["色盲不宜"])
     student = make_student(
         15000,
         physical_exam=PhysicalExam(color_blindness=True),
-        preferences=Preferences(budget_comfortable=10000, budget_max=60000),
     )
     risks = scan_risks(
         _plan(ZJ, batch, [_item(1, unit, Tier.WEN)]),
@@ -250,7 +259,13 @@ def test_physical_limit_and_tuition_high() -> None:
     )
     codes = {risk.code for risk in risks}
     assert PHYSICAL_LIMIT in codes
-    assert TUITION_HIGH in codes
+    assert "TUITION_HIGH" not in codes, "学费风险码应已移除"
+
+
+def test_risk_code_table_is_thirteen() -> None:
+    """风险码表由 14 码降为 **13 码**（ADR-022 移除 TUITION_HIGH）。"""
+    assert len(ALL_RISK_CODES) == 13
+    assert "TUITION_HIGH" not in ALL_RISK_CODES
 
 
 def test_sequential_batch_skips_gradient_codes() -> None:

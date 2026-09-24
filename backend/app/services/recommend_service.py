@@ -199,7 +199,6 @@ def _with_weights(
         "region": "weight_region",
         "college_level": "weight_college_level",
         "major": "weight_major",
-        "tuition": "weight_tuition",
         "city": "weight_city",
         "misc": "weight_misc",
     }
@@ -207,6 +206,29 @@ def _with_weights(
         if key in weights and weights[key] is not None:
             setattr(prefs, attr, max(0.0, float(weights[key])))
     return prefs
+
+
+def criteria_from_profile(profile: StudentProfile) -> FilterCriteria:
+    """把**档案里的偏好**转成硬约束（ADR-022）。
+
+    ★ 为什么需要它：筛选与偏好现在只填一次（建档向导第 4 步）并持久化到档案，
+    推荐页与志愿表都直接按它生成，不再让考生重填一遍。
+
+    语义：
+    * ``intent_as_hard=False``（默认）→ 返回**空** criteria：意向只影响排序（软偏好 §6.5）；
+    * ``intent_as_hard=True`` → 把意向地区/层次/专业升级为硬约束（一票否决）。
+
+    ``excluded_majors`` 不在这里处理：它由 ``risk.py`` 的 ``GROUP_UNACCEPTABLE`` 使用
+    （"组内含排斥专业"是风险提示，不是整条否决）。
+    """
+    prefs = profile.preferences
+    if not prefs.intent_as_hard:
+        return FilterCriteria()
+    return FilterCriteria(
+        regions=list(prefs.intended_regions),
+        levels=list(prefs.intended_levels),
+        major_categories=list(prefs.intended_major_categories),
+    )
 
 
 def evaluate_candidates(
@@ -217,16 +239,25 @@ def evaluate_candidates(
     weights: dict | None = None,
     params: ModelParams | None = None,
     allowed_batches: list[str] | None = None,
-    intent_as_hard: bool = False,
+    intent_as_hard: bool | None = None,
 ) -> EvaluationBundle:
-    """跑完整评估流水线（过滤 → 打分 → 概率），返回可复用的评估包。"""
-    params = params or ModelParams()
-    criteria = criteria or FilterCriteria()
+    """跑完整评估流水线（过滤 → 打分 → 概率），返回可复用的评估包。
 
+    :param criteria: 硬约束。``None``（默认）→ 按**档案偏好**推导（ADR-022）；
+        显式传入则作为高级覆盖（如 agent 工具临时收窄范围）。
+    :param intent_as_hard: ``None``（默认）→ 取档案里的 ``preferences.intent_as_hard``。
+    """
+    params = params or ModelParams()
     profile = student_service.ensure_rank(session, student_row)  # 缺位次但有分数 → 自动换算
     rule = get_rule(profile.province)
     batch = rule.main_batch()
     plan_year = None if profile.year == CURRENT_YEAR else profile.year
+
+    # ★ ADR-022：筛选/偏好来自档案；显式 criteria 仅作覆盖
+    if criteria is None:
+        criteria = criteria_from_profile(profile)
+    if intent_as_hard is None:
+        intent_as_hard = bool(profile.preferences.intent_as_hard)
 
     units = repo.load_units(session, profile.province, profile.year, plan_year=plan_year)
     colleges = repo.load_colleges(session)
@@ -415,7 +446,7 @@ def recommend(
     weights: dict | None = None,
     params: ModelParams | None = None,
     allowed_batches: list[str] | None = None,
-    intent_as_hard: bool = False,
+    intent_as_hard: bool | None = None,
     use_cache: bool = True,
 ) -> RecommendOutcome:
     """按 §7 生成推荐列表（含每项证据链与整体统计）。
@@ -423,12 +454,19 @@ def recommend(
     ★ ADR-019：带**持久缓存**。键覆盖 ``(数据代次, 省, 年, 位次, 筛选, 权重, 参数, limit,
     批次, 是否含过险)`` —— 结果与考生身份无关，因此"同位次 + 同筛选"的另一位考生
     可直接复用（详见 ``services/cache_service.py``）。
+
+    ★ ADR-022：``criteria`` / ``intent_as_hard`` 默认 ``None`` → **按档案偏好推导**。
+    注意缓存键必须用**推导后**的 criteria，否则"同档案"的两次调用会算出不同键而漏命中。
     """
     params = params or ModelParams()
-    criteria = criteria or FilterCriteria()
+    profile_for_key = student_service.ensure_rank(session, student_row)
+    if criteria is None:
+        criteria = criteria_from_profile(profile_for_key)
+    if intent_as_hard is None:
+        intent_as_hard = bool(profile_for_key.preferences.intent_as_hard)
 
     # 先定位次（缓存键要用它；ensure_rank 是幂等的）
-    profile = student_service.ensure_rank(session, student_row)
+    profile = profile_for_key
     rank = profile.rank
     cache_hit = False
     cache_key: str | None = None
@@ -626,6 +664,7 @@ __all__ = [
     "EvaluationBundle",
     "RecommendOutcome",
     "allocate_display_slots",
+    "criteria_from_profile",
     "evaluate_candidates",
     "item_payload",
     "recommend",

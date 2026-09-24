@@ -81,7 +81,6 @@ def _extract_major_intents(text: str) -> list[str]:
             intents.append(value)
     return intents
 
-_TUITION_MAX = re.compile(r"(?:学费)?(?:不超过|最多|上限|以内|以下)\s*(\d{3,6})")
 _SCORE = re.compile(r"(\d{3})\s*分|考了\s*(\d{3})|总分\s*(\d{3})")
 _RANK = re.compile(r"(?:位次|排名|名次|省排)\D{0,4}(\d{1,3}(?:,\d{3})+|\d{3,7})")
 _HEIGHT = re.compile(r"身高\s*(\d{3})")
@@ -239,9 +238,8 @@ def parse_profile_fields(text: str) -> ParsedProfile:
     if intents:
         parsed.preferences["intended_major_categories"] = intents
 
-    tuition = _TUITION_MAX.search(text)
-    if tuition:
-        parsed.preferences["budget_max"] = int(tuition.group(1))
+    # ★ ADR-022：学费预算已移除（学费不再是筛选/偏好维度），
+    #   因此不再解析"学费不超过 X"这类说法 —— 解析了也没有字段可写。
 
     return parsed
 

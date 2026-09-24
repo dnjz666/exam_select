@@ -51,9 +51,15 @@ def test_extracts_major_intent_only_from_explicit_trigger() -> None:
 
 
 def test_extracts_major_intent_with_suffix() -> None:
+    """专业意向能带"专业"后缀识别。
+
+    ★ ADR-022：学费预算已移除，因此"学费不超过 8000"这类说法**不再**被解析
+    （没有字段可写）。这里同时钉住这一点，防止以后有人把它加回来。
+    """
     parsed = parse_profile_fields("想读临床医学专业，学费不超过8000")
     assert parsed.preferences["intended_major_categories"] == ["临床医学"]
-    assert parsed.preferences["budget_max"] == 8000
+    assert "budget_max" not in parsed.preferences
+    assert "budget_comfortable" not in parsed.preferences
 
 
 def test_missing_fields_are_not_invented() -> None:

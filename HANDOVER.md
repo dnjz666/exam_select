@@ -48,6 +48,21 @@
 > ⚠️ **`_next_id` 的定序语义别改回去**：只靠纳秒 + 随机后缀在 Windows 上必然偶发倒置。
 > 回归用例 `tests/test_chat_ordering.py` 会**冻结时钟**来确定性地守住它。
 
+* ✅ **筛选/偏好并入建档向导 + 意向专业分级 + 删除学费维度**（ADR-022）：
+  筛选与偏好只在**向导第 4 步**填一次并持久化到档案，推荐与志愿表都由后端按档案推导
+  （`recommend_service.criteria_from_profile`），前端 `/recommend` 与 `/plans/generate`
+  都**不再传 `filters`**（该字段降级为可选高级覆盖）。意向专业改为 **门类 → 专业类**
+  （新端点 `GET /meta/major-taxonomy`，直接输出规则库的 12 门类 / 93 专业类 + 库中真实专业名数）
+  + 第三级「专业名」走 `/majors/search`。**删除**学费预算、学费硬约束、`weight_tuition`、
+  `TUITION_HIGH` 风险码（**风险码表 14 → 13**）、`tuition_score`；学费**数据与展示保留**
+  （铁律 10 由展示层保证：卡片/志愿表/报告显示学费 + 非公办标记）。
+
+> ⚠️ **`filters` 的默认值不能当成"考生要求不过滤"显式传下去** —— 那会**无声抹掉档案意向**
+> （实测踩过：`intent_as_hard=False` 在 API 层覆盖了档案里的硬约束，推荐结果混进非意向专业）。
+> 该字段已改为 `bool | None`：`None` = 用档案值。
+> ⚠️ **硬约束只认 专业名/专业类/门类 三档，不认"相关门类"**（`RELATED_CATEGORY` 是软偏好概念）；
+> 旧写法只比对 `major.category`，考生选「计算机类」会把**全部**候选一票否决（已修）。
+
 ### M6.6 交付了什么（一句话版）
 
 ① 层次判别不再只看 985/211/双一流：名册 tier 的 `PROV`/`PRIV` 原先没映射，
@@ -340,6 +355,8 @@ L1 backend/app/etl/**  synthetic.py（确定性模拟，seed 固定）
 | **M6.5 专业目录归属缺陷与四级规则库** | `docs/DECISIONS.md` **ADR-018** |
 | **M7 推荐列表截断方式（分层取样）** | `docs/DECISIONS.md` **ADR-020** |
 | **M7 会话历史定序缺陷** | `docs/DECISIONS.md` **ADR-021** |
+| **M7 筛选/偏好并入向导 + 意向专业分级 + 删学费维度** | `docs/DECISIONS.md` **ADR-022** |
+| **专业分类规则库端点（意向专业分级来源）** | `GET /api/v1/meta/major-taxonomy` · `services/meta_service.py::major_taxonomy_meta` |
 | **M6 真实数据接入的设计、五个实测缺陷、性能复盘** | `docs/DECISIONS.md` **ADR-015** |
 | **真实数据适配器（浙江）** | `backend/app/etl/loaders/zhejiang.py`（+ `tests/test_loaders_zhejiang.py`） |
 | 官方数据采集/解析脚本 | `scripts/collect_zj_scorelines.py` · `parse_zj_compilation_pdf.py` · `collect_zj_score_segment.py` · `zjzs_fetch.py` · `package_zj_data.py` |

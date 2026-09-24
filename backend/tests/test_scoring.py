@@ -19,7 +19,6 @@ from app.core.scoring import (
     region_score,
     region_strength_index,
     score_unit,
-    tuition_score,
     utility_of,
 )
 
@@ -222,16 +221,23 @@ def test_level_score_ordering_is_sane() -> None:
     )
 
 
-def test_tuition_score_branches() -> None:
-    assert tuition_score(5000) == 1.00  # 未设预算
-    assert tuition_score(5000, budget_comfortable=6000, budget_max=20000) == 1.00
-    mid = tuition_score(13000, budget_comfortable=6000, budget_max=20000)
-    assert 0.30 <= mid < 1.00
-    assert tuition_score(25000, budget_comfortable=6000, budget_max=20000) == 0.00
-    # 只设舒适线
-    assert tuition_score(99999, budget_comfortable=6000) == 1.00
-    # 只设硬上限
-    assert 0.30 <= tuition_score(15000, budget_max=20000) <= 1.00
+def test_tuition_is_no_longer_a_scoring_dimension() -> None:
+    """★ ADR-022：学费不再参与效用打分（用户要求删除学费选项与权重）。
+
+    但**学费数据与展示保留**（名师铁律 10）：`unit.tuition` 仍在，
+    卡片/志愿表/报告照常显示，非公办院校另有「非公办」标记。
+    """
+    import app.core.scoring as scoring
+
+    assert not hasattr(scoring, "tuition_score"), "学费打分函数应已移除"
+    assert "tuition" not in normalize_weights(Preferences()), "权重里不应再有学费维度"
+
+    # 学费高低不再影响效用（同其他条件相同时）
+    cheap = score_unit(make_unit(tuition=5000), preferences=Preferences(), college=_college())
+    pricey = score_unit(make_unit(tuition=80000), preferences=Preferences(), college=_college())
+    assert cheap.utility == pytest.approx(pricey.utility), "学费不应再影响排序"
+    # 数据本身保留，供展示使用
+    assert pricey.unit.tuition == 80000
 
 
 def test_misc_score_uses_college_metrics() -> None:
@@ -246,21 +252,23 @@ def test_misc_score_uses_college_metrics() -> None:
 # 权重与总效用
 # ---------------------------------------------------------------------------
 def test_normalize_weights_defaults_to_equal() -> None:
+    """★ ADR-022：现在是 **5 个维度**（学费已移除）。"""
     equal = normalize_weights(Preferences())
     assert sum(equal.values()) == pytest.approx(1.0)
     assert len(set(equal.values())) == 1
+    assert len(equal) == 5
+    assert set(equal) == {"region", "college_level", "major", "city", "misc"}
 
     zeroed = normalize_weights(
         Preferences(
             weight_region=0,
             weight_college_level=0,
             weight_major=0,
-            weight_tuition=0,
             weight_city=0,
             weight_misc=0,
         )
     )
-    assert all(value == pytest.approx(1 / 6) for value in zeroed.values())
+    assert all(value == pytest.approx(1 / 5) for value in zeroed.values())
 
     skewed = normalize_weights(Preferences(weight_major=3.0))
     assert sum(skewed.values()) == pytest.approx(1.0)
@@ -272,8 +280,6 @@ def test_score_unit_produces_traceable_breakdown() -> None:
     preferences = Preferences(
         intended_regions=["zhejiang"],
         intended_major_categories=["计算机类"],
-        budget_comfortable=8000,
-        budget_max=30000,
     )
     scored = score_unit(unit, preferences=preferences, college=_college(city="杭州"), major=_major())
     assert scored.unit.unit_id == unit.unit_id
@@ -282,7 +288,6 @@ def test_score_unit_produces_traceable_breakdown() -> None:
         breakdown.region_score,
         breakdown.college_level_score,
         breakdown.major_match_score,
-        breakdown.tuition_score,
         breakdown.city_score,
         breakdown.misc_score,
     ):

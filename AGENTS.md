@@ -723,8 +723,10 @@ class ProbabilityResult(BaseModel):
 5. **外语语种**：非英语考生受限专业
 6. **单科成绩要求**：如英语 ≥ 120
 7. **应届/往届、政治面貌**（提前批）
-8. **学费上限**（若用户设定，视为硬约束）
+8. ~~**学费上限**~~ → **已移除（ADR-022）**：学费不再是筛选条件；铁律 10 的学费明示由展示层保证
 9. 已撤销/停招单位
+10. **意向硬约束**（`intent_as_hard=True` 时）：意向地区 / 层次 / 专业。
+    专业一档支持 **专业名 / 专业类 / 门类**，**不认"相关门类"**（那是软偏好概念，ADR-022）
 
 > 输出 `FilterResult{passed: list, rejected: list[RejectionReason]}`，
 > `RejectionReason{unit_id, rule_code, message}`。**被剔除项必须可解释。**
@@ -735,13 +737,24 @@ class ProbabilityResult(BaseModel):
 utility = w_region * region_score
         + w_college_level * level_score
         + w_major * major_match_score
-        + w_tuition * tuition_score
         + w_city * city_score
         + w_misc * misc_score
 ```
 - 权重由考生在 UI 上调整（默认等权，归一化到 1.0）
 - 每项分数归一到 [0, 1]，**每个分数必须能追溯到具体规则**（返回 `score_breakdown`）
-- `major_match_score` 基于：意向专业类精确匹配 > 同一级学科 > 相关学科 > 不相关
+- `major_match_score` 基于：意向**专业名**精确匹配 1.00 > 同一**专业类** 0.80 >
+  同一**门类** 0.55 > 相关门类 0.30（四级专业分类见 `docs/MAJOR_TAXONOMY.md`）
+- ★ **学费维度已移除（ADR-022）**：现在是 **5 个维度**。学费不再参与打分、也不再是筛选条件；
+  但学费**数据与展示保留** —— 名师铁律 10 要求中外合作/民办学费必须让家长看见（§2.2），
+  该要求由展示层保证（卡片/志愿表/报告显示学费 + 非公办标记），不靠风险码。
+
+> ★ **意向只有一个来源（ADR-022）**：筛选与偏好在**建档向导第 4 步**填一次并持久化到档案
+>（`Preferences.intended_regions / intended_levels / intended_major_categories /
+> excluded_majors / intent_as_hard`），推荐与志愿表都由后端按档案推导
+>（`recommend_service.criteria_from_profile`），**不再让考生在推荐页重填**。
+> `intent_as_hard=False`（默认）→ 意向只影响排序；`True` → 升级为硬约束
+>（硬约束只认 专业名/专业类/门类 三档，**不认"相关门类"** —— 那是软偏好概念）。
+> API 的 `filters` 保留为**高级覆盖**入口（agent 工具临时收窄范围）。
 
 ### 6.6 省份规则包（`core/rules/base.py`）—— ★ 批次级建模
 
@@ -851,16 +864,18 @@ class VolunteerPlan(BaseModel):
 | `NO_OBEDIENCE` | HIGH | 院校专业组模式未勾选服从调剂 | ★ 退档风险，强烈建议勾选 |
 | `GROUP_UNACCEPTABLE` | MEDIUM | 组内含考生明确排斥的专业 | 冲进去也会被调剂到该专业 |
 | `PHYSICAL_LIMIT` | HIGH | 体检受限 | 必须移除或核实招生章程 |
-| `TUITION_HIGH` | LOW | 学费超考生预算 | 提示经济负担 |
 | `SUSPECT_DATA` | HIGH | 数据 quality=SUSPECT | 需人工核实 |
 | `COLLECTED_ONLY` | MEDIUM | 历史仅来自征集志愿 | 征集线偏低，会高估概率 |
+
+> ★ **本表为 13 码**（ADR-022 移除了 `TUITION_HIGH` —— 它依赖"预算舒适线"，
+> 而学费预算随学费维度一并删除后该风险不再有判据；铁律 10 的学费明示由展示层保证）。
 
 > ★ **适用范围（ADR-006）**：梯度类风险码（`GRADIENT_INVERSION` / `NO_SAFETY_NET` /
 > `SAFETY_NOT_SAFE` / `INSUFFICIENT_COUNT`）仅适用于 `is_parallel=True` 的批次；
 > 顺序志愿批次（`is_parallel=False`）不做冲稳保梯度配额校验，改为顺序志愿专用校验
->（第一志愿必须是最想去的），其专用风险码在 M2 实现 `risk.py` 时补充定义，
-> 不改变本表 14 码的 M2 验收基线。批次级扩展字段（投档比例 / 同分排序 / 调剂边界 /
-> 退档情形，见 §6.6）带来的增量风险码（如调剂越界、退档条款命中）同样在 M2 一并定义。
+>（第一志愿必须是最想去的），其专用风险码在 M2 实现 `risk.py` 时补充定义。
+> 批次级扩展字段（投档比例 / 同分排序 / 调剂边界 / 退档情形，见 §6.6）带来的增量风险码
+>（如调剂越界、退档条款命中）同样在 M2 一并定义。
 
 ### 6.9 回测框架（`core/backtest.py`）—— 证明算法可信的唯一方式
 
@@ -889,6 +904,9 @@ GET    /meta/provinces/{p}/subject-coverage?subjects=物理,化学,生物
                                              # §8.1 Step 2 的可报专业覆盖率：真实统计（非估算）；
                                              # 同时回传 subject_pool（origin=RULE | DATA_DERIVED）
 GET    /meta/tiers                           # 分层区间 / 配额 / 安全闸门 / 免责声明文案（UI 唯一来源）
+GET    /meta/major-taxonomy                  # ★ 专业分类规则库（12 门类 / 93 专业类 + 库中真实专业名数）
+                                             #   意向专业分级选择的**唯一来源**（ADR-022）；
+                                             #   第三级「专业名」走 /majors/search?discipline=…
 
 # 考生档案
 POST   /students                             # 创建档案 → 返回 missing_fields 供追问
@@ -903,8 +921,11 @@ GET    /units/{unit_id}/history?years=3
 
 # 核心推荐
 POST   /recommend
-  req  { student_id, filters:{regions,majors,levels,tuition_max,intent_as_hard},
+  req  { student_id, filters?:{regions,majors,levels,exclude_unit_ids,intent_as_hard?},
          weights:{...}, limit, include_too_risky }
+  # ★ ADR-022：`filters` 现在是**可选的高级覆盖**。留空 ⇒ 后端按**档案偏好**生成
+  #   （建档向导第 4 步填一次）。`intent_as_hard` 留空 = 用档案值。
+  #   学费上限已移除（学费不再是筛选条件）。
   res  { items:[{ unit, college, major, probability, **probability_interval**, tier, confidence, utility,
                   score_breakdown, predicted_min_rank, sigma,
                   evidence[], adjustments[], reasons[], warnings[] }],
@@ -960,7 +981,7 @@ GET    /health
 | **1** | **选省份** | 六省市之一：浙江 / 上海 / 北京 / 山东 / 天津 / 海南 | 大卡片点选。选中后**立即**显示该省投档模式（专业+院校 / 院校专业组）、平行志愿数量、组内专业数与调剂规则，并显示规则核实状态徽标 |
 | **2** | **选选考科目** | 从该省可选科目中**恰好选 3 门** | 多选；选满 3 门后其余选项禁用并给出提示；实时显示该组合的**可报专业覆盖率** |
 | **3** | **填成绩** | 高考总分（必填）、位次（选填） | 输入总分后**立即**换算并展示位次与等效分；已知位次的考生可直接填位次，两者互为校验 |
-| 4 | 偏好与身体条件 | 意向地区 / 意向专业 / 学费上限 / 体检结论 / 外语语种 | **可跳过**（跳过用默认值），完成后进入 `/recommend` |
+| 4 | 偏好与身体条件 | **意向地区 / 意向专业（门类→专业类→专业，分级）/ 意向院校层次 / 是否当硬约束** / 排斥专业 / 体检结论 / 外语语种 | **可跳过**（跳过用默认值），完成后进入 `/recommend`。★ **ADR-022：这里是筛选与偏好的唯一入口** —— 推荐列表与志愿表都直接按它生成，推荐页不再重复填写；学费选项已移除 |
 
 **Step 1 的省份选择必须联动下游全部环节**（这是首屏最重要的一个设计点）：
 

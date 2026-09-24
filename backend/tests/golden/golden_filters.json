@@ -60,11 +60,10 @@
     },
     {
       "case_id": "G-030",
-      "description": "学费上限：用户设定 20000，单位为中外合作 45000 → 剔除",
+      "description": "学费不再是筛选条件（ADR-022）：中外合作 45000 也应通过，只在展示层提示",
       "student": { "subjects": ["物理", "化学", "生物"] },
       "unit": { "tuition": 45000 },
-      "criteria": { "tuition_max": 20000 },
-      "expected": { "passed": false, "rule_code": "TUITION_LIMIT" }
+      "expected": { "passed": true }
     },
     {
       "case_id": "G-031",

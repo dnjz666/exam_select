@@ -23,14 +23,23 @@ def recommend(payload: RecommendRequest, session: DbDep) -> Envelope[dict]:
     if row is None:
         raise HTTPException(status_code=404, detail=f"档案不存在：{payload.student_id}")
 
+    # ★ ADR-022：筛选与偏好**默认来自档案**（建档向导第 4 步）。
+    #   只有调用方**显式**传了硬约束时才覆盖 —— 注意不能把 payload 的默认值
+    #   （``intent_as_hard=False``、空列表）当成"考生要求不过滤"，
+    #   否则档案里的意向会被无声抹掉（实测踩过：硬约束在 API 层被覆盖成 False）。
+    filters = payload.filters
+    explicit = bool(
+        filters.regions or filters.levels or filters.majors or filters.exclude_unit_ids
+    )
     outcome = recommend_service.recommend(
         session,
         row,
-        criteria=payload.filters.to_criteria(),
+        criteria=filters.to_criteria() if explicit else None,
         limit=payload.limit,
         include_too_risky=payload.include_too_risky,
         weights=payload.weights,
-        intent_as_hard=payload.filters.intent_as_hard,
+        # None → 用档案里的 intent_as_hard（见 RecommendFilters 的说明）
+        intent_as_hard=filters.intent_as_hard,
     )
     return Envelope[dict](
         data={"items": outcome.items, "stats": outcome.stats},

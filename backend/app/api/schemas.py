@@ -104,16 +104,25 @@ class StudentPatchRequest(BaseModel):
 # 推荐 / 志愿表
 # ---------------------------------------------------------------------------
 class RecommendFilters(BaseModel):
-    """与 §7 的 ``filters:{regions,majors,levels,tuition_max}`` 对应。"""
+    """**可选**的硬约束覆盖项（§7 的 ``filters:{regions,majors,levels}``）。
+
+    ★ ADR-022：这些条件现在**默认来自考生档案里的偏好**（建档向导第 4 步），
+    推荐页不再单独维护一份筛选面板。本请求体保留为**高级覆盖**入口
+    （例如 agent 工具要临时收窄范围）；留空即按档案偏好生成。
+    学费上限已移除（用户要求：学费不再是筛选条件）。
+    """
 
     regions: list[str] = Field(default_factory=list)
     majors: list[str] = Field(default_factory=list)
     levels: list[str] = Field(default_factory=list)
-    tuition_max: int | None = None
     exclude_unit_ids: list[str] = Field(default_factory=list)
-    intent_as_hard: bool = Field(
-        default=False,
-        description="是否把意向省份/层次/门类当硬约束（默认 False：意向属软偏好 §6.5）",
+    intent_as_hard: bool | None = Field(
+        default=None,
+        description=(
+            "是否把意向省份/层次/门类当硬约束。"
+            "**留空（None）= 用档案里的 preferences.intent_as_hard**（ADR-022）；"
+            "显式传 true/false 才覆盖。默认 False 只影响排序（软偏好 §6.5）。"
+        ),
     )
 
     def to_criteria(self) -> FilterCriteria:
@@ -121,7 +130,6 @@ class RecommendFilters(BaseModel):
             regions=list(self.regions),
             levels=list(self.levels),
             major_categories=list(self.majors),
-            tuition_max=self.tuition_max,
             exclude_unit_ids=list(self.exclude_unit_ids),
         )
 
@@ -451,6 +459,33 @@ class TiersPayload(BaseModel):
     safety_gate: SafetyGateMeta | None = None
     probability_interval: str = ""
     disclaimer: str = ""
+
+
+class MajorTaxonomyDiscipline(BaseModel):
+    """一个专业类，及其在**当前库**里的可选专业名数量。"""
+
+    name: str
+    major_count: int = 0
+
+
+class MajorTaxonomyCategory(BaseModel):
+    """一个门类，及其下属专业类（ADR-022 意向专业分级选择的第二级）。"""
+
+    name: str
+    disciplines: list[MajorTaxonomyDiscipline] = Field(default_factory=list)
+
+
+class MajorTaxonomyPayload(BaseModel):
+    """专业分类规则库（门类 → 专业类），供意向专业分级选择。
+
+    来源：`core/major_taxonomy`（`data/taxonomy/major_taxonomy.json`），
+    即 `docs/MAJOR_TAXONOMY.md` 的规则库；第三级「专业名」走 `/majors/search`。
+    """
+
+    categories: list[MajorTaxonomyCategory] = Field(default_factory=list)
+    source_url: str = ""
+    version: str = ""
+    note: str = ""
 
 
 class UnitHistoryRecord(BaseModel):

@@ -16,16 +16,17 @@ export type PhysicalExam = NonNullable<StudentPayload['physical_exam']>
 
 export const DEFAULT_PREFERENCES: Preferences = {
   intended_regions: [],
+  intended_levels: [],
   intended_major_categories: [],
   excluded_majors: [],
-  budget_comfortable: null,
-  budget_max: null,
-  weight_region: 1 / 6,
-  weight_college_level: 1 / 6,
-  weight_major: 1 / 6,
-  weight_tuition: 1 / 6,
-  weight_city: 1 / 6,
-  weight_misc: 1 / 6,
+  // 默认：意向只影响排序（软偏好）；勾选"当作硬约束"后才直接过滤（ADR-022）
+  intent_as_hard: false,
+  // ★ ADR-022：学费维度已移除 → 现在是 **5 个维度**（各 1/5）
+  weight_region: 1 / 5,
+  weight_college_level: 1 / 5,
+  weight_major: 1 / 5,
+  weight_city: 1 / 5,
+  weight_misc: 1 / 5,
 }
 
 export const DEFAULT_EXAM: PhysicalExam = {

@@ -33,6 +33,7 @@ from app.core.models import (
     SubjectReqMode,
     SubjectRequirement,
 )
+from app.core.scoring import MATCH_LEVEL_NONE, MATCH_LEVEL_RELATED, major_match_detail
 
 # ---------------------------------------------------------------------------
 # 规则码（RejectionReason.rule_code，稳定字符串，供前端与追问引用）
@@ -51,7 +52,8 @@ SINGLE_SUBJECT_LIMIT = "SINGLE_SUBJECT_LIMIT"
 SINGLE_SUBJECT_UNKNOWN = "SINGLE_SUBJECT_UNKNOWN"
 FRESH_GRADUATE_LIMIT = "FRESH_GRADUATE_LIMIT"
 POLITICAL_LIMIT = "POLITICAL_LIMIT"
-TUITION_LIMIT = "TUITION_LIMIT"
+#: ★ ADR-022：`TUITION_LIMIT` 已移除 —— 学费不再是筛选条件（用户要求）。
+#: 铁律 10 的"学费必须让家长看见"由展示层保证（卡片/志愿表/报告 + 非公办标记）。
 UNIT_WITHDRAWN = "UNIT_WITHDRAWN"
 MANUALLY_EXCLUDED = "MANUALLY_EXCLUDED"
 REGION_NOT_INTENDED = "REGION_NOT_INTENDED"
@@ -222,13 +224,9 @@ def check_unit(
             ),
         )
 
-    # 8) 学费上限（用户设定即硬约束）
-    if criteria.tuition_max is not None and unit.tuition > criteria.tuition_max:
-        return RejectionReason(
-            unit_id=unit.unit_id,
-            rule_code=TUITION_LIMIT,
-            message=f"学费 {unit.tuition} 元/年 超过设定上限 {criteria.tuition_max} 元/年",
-        )
+    # 8) 学费上限 —— ★ ADR-022 已移除（学费不再是筛选条件）。
+    #    名师铁律 10（中外合作/民办学费必须让家长看见）改由**展示层**保证：
+    #    推荐卡片 / 志愿表 / 报告都显示学费，并对非公办院校打「非公办」标记。
 
     # 9) 已撤销 / 停招
     if unit.is_withdrawn:
@@ -266,12 +264,28 @@ def check_unit(
                 rule_code=LEVEL_NOT_INTENDED,
                 message=f"院校层次不在意向范围内：{'、'.join(criteria.levels)}",
             )
-        if criteria.major_categories and major is not None and major.category not in criteria.major_categories:
-            return RejectionReason(
-                unit_id=unit.unit_id,
-                rule_code=MAJOR_CATEGORY_NOT_INTENDED,
-                message=f"专业门类 {major.category} 不在意向范围内",
+        if criteria.major_categories and major is not None:
+            # ★ ADR-022：意向专业可混合填 **门类 / 专业类 / 专业名**（与规则库分级一致，
+            #   见 docs/MAJOR_TAXONOMY.md）。必须与 scoring.major_match_detail 同口径判定，
+            #   否则考生选「计算机类」（专业类）时，`major.category`（"工学"）不等于它，
+            #   会把**全部**候选一票否决 —— 实测这是最危险的写法。
+            #
+            #   ★ 但**硬约束**只认 专业名 / 专业类 / 门类 三档，**不认"相关门类"**：
+            #   `RELATED_CATEGORY`（0.30）是**软偏好**的排序概念（工学↔理学↔管理学），
+            #   若让它通过硬约束，考生把"工学"设为硬约束时会连带放进理学与管理学 ——
+            #   那不是他说的意思。软偏好仍按 0.30 参与打分，不受此影响。
+            _score, match_level = major_match_detail(
+                criteria.major_categories, major=major, major_name=unit.major_name
             )
+            if match_level in (MATCH_LEVEL_NONE, MATCH_LEVEL_RELATED):
+                return RejectionReason(
+                    unit_id=unit.unit_id,
+                    rule_code=MAJOR_CATEGORY_NOT_INTENDED,
+                    message=(
+                        f"专业「{unit.major_name}」不在意向范围内"
+                        f"（意向：{'、'.join(criteria.major_categories)}）"
+                    ),
+                )
     return None
 
 
@@ -335,7 +349,6 @@ __all__ = [
     "SINGLE_SUBJECT_UNKNOWN",
     "SUBJECT_NOT_MATCHED",
     "TRACK_MISMATCH",
-    "TUITION_LIMIT",
     "UNIT_WITHDRAWN",
     "YEAR_MISMATCH",
     "check_unit",

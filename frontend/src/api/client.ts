@@ -17,6 +17,7 @@ export type BatchMeta = Schema['BatchMeta']
 export type SubjectPoolMeta = Schema['SubjectPoolMeta']
 export type SubjectCoveragePayload = Schema['SubjectCoveragePayload']
 export type TiersPayload = Schema['TiersPayload']
+export type MajorTaxonomyPayload = Schema['MajorTaxonomyPayload']
 export type StudentPayload = Schema['StudentPayload']
 export type ResolveRankPayload = Schema['ResolveRankPayload']
 export type RecommendItem = Schema['RecommendItem']
@@ -184,6 +185,9 @@ export const api = {
         query: { subjects: subjects.join(',') },
       }),
     tiers: () => request<TiersPayload>('/meta/tiers'),
+    // ★ ADR-022：专业分类规则库（门类 → 专业类），供意向专业分级选择。
+    //   唯一权威来源是后端规则库，前端**不得**自己列一份门类清单（必然漂移）。
+    majorTaxonomy: () => request<MajorTaxonomyPayload>('/meta/major-taxonomy'),
   },
 
   students: {

@@ -374,18 +374,23 @@ class ModelParams(BaseModel):
 - `city_score`：一线 1.0 / 新一线 0.85 / 二线 0.7 / 三线 0.5 / 其他 0.35
   （城市分级表单独维护，带来源）
 
-### 5.4 `tuition_score`
+### 5.4 学费 —— ★ 已移除打分维度（ADR-022）
 
-```
-tuition <= budget_comfortable          → 1.00
-budget_comfortable < tuition <= budget_max → 线性降到 0.3
-tuition > budget_max                   → 硬约束剔除（见 filters.py）
-```
+学费**不再**参与效用打分，也**不再**是筛选条件。`tuition_score()`、`TUITION_SCORE_*`、
+`ScoreBreakdown.tuition_score`、`FilterCriteria.tuition_max`、`Preferences.budget_*`、
+`weight_tuition`、风险码 `TUITION_HIGH` 均已删除（风险码表 14 → 13）。
+
+> ★ **名师铁律 10 仍然有效**：中外合作 / 民办 / 独立学院的学费**必须让家长看见**。
+> 这件事由**展示层**保证 —— 推荐卡片 / 志愿表 / 报告都显示 `formatTuition(unit.tuition)`，
+> 并对 `is_public=False` 打「非公办」标记。`AdmissionUnit.tuition` 数据完整保留。
 
 ### 5.5 `misc_score`
 
 保研率、硕士点/博士点、宿舍条件、转专业政策等，各自归一后加权。
 **每项必须返回 `score_breakdown`，让考生看见"为什么这个分"。**
+
+> ★ **效用的维度现在是 5 个**（ADM-022 删除学费后）：地区 / 院校层次 / 专业匹配 / 城市 / 其他，
+> 默认等权各 1/5。
 
 ---
 

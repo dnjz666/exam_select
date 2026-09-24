@@ -16,11 +16,10 @@ import { TierBadge } from '../components/TierBadge'
 import { TierLegend } from '../components/Disclaimer'
 import { formatNumber, formatPlanCount, formatRank, formatTuition, describeSubjectRequirement } from '../lib/format'
 import { useAsync } from '../lib/hooks'
-import { PROVINCE_LABEL, TIER_LABEL, TIER_ORDER, TIER_STYLE, UNIT_TYPE_LABEL, missingFieldLabel, provinceLabel, regionLabel } from '../lib/labels'
+import { TIER_LABEL, TIER_ORDER, TIER_STYLE, UNIT_TYPE_LABEL, missingFieldLabel, provinceLabel, regionLabel } from '../lib/labels'
 import { useProfileStore } from '../store/profile'
 import { usePlanStore } from '../store/plan'
 
-const LEVEL_OPTIONS = ['985', '211', '双一流']
 const DEFAULT_LIMIT = 60
 
 const TIER_HEADLINE: Record<string, string> = {
@@ -43,36 +42,31 @@ export function RecommendPage() {
   const profile = useProfileStore()
   const planStore = usePlanStore()
 
-  const [regions, setRegions] = useState<string[]>([])
-  const [levels, setLevels] = useState<string[]>([])
-  const [categories, setCategories] = useState<string[]>([])
-  const [tuitionMax, setTuitionMax] = useState<number | null>(null)
   const [includeTooRisky, setIncludeTooRisky] = useState(false)
-  const [intentAsHard, setIntentAsHard] = useState(false)
   const [limit, setLimit] = useState(DEFAULT_LIMIT)
 
   const studentId = profile.studentId
   const missing = profile.student?.missing_fields ?? []
 
   const tiers = useAsync(() => api.meta.tiers(), [])
-  const majors = useAsync(() => api.catalog.majorSearch({ limit: 300 }), [])
-  const categoryOptions = useMemo(() => {
-    const seen = new Set<string>()
-    for (const major of majors.data?.data ?? []) if (major.category) seen.add(major.category)
-    return [...seen].sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'))
-  }, [majors.data])
 
-  const filters = useMemo(
+  /**
+   * ★ ADR-022：筛选与偏好**只填一次**（建档向导第 4 步）并持久化到档案，
+   * 这里只**读**它做展示；请求也不再传 filters —— 后端会按档案推导。
+   * 这样"志愿表直接按筛选与偏好生成"才是同一份口径。
+   */
+  const preferences = profile.student?.preferences ?? profile.preferences
+  const intent = useMemo(
     () => ({
-      regions,
-      levels,
-      majors: categories,
-      tuition_max: tuitionMax,
-      exclude_unit_ids: [] as string[],
-      intent_as_hard: intentAsHard,
+      regions: preferences.intended_regions ?? [],
+      levels: preferences.intended_levels ?? [],
+      majors: preferences.intended_major_categories ?? [],
+      excluded: preferences.excluded_majors ?? [],
+      hard: preferences.intent_as_hard ?? false,
     }),
-    [regions, levels, categories, tuitionMax, intentAsHard],
+    [preferences],
   )
+  const intentKey = JSON.stringify(intent)
 
   // 档案不完整时**不发请求**：后端会 409，前端也必须在入口就拦住（§8.1）
   const recommendation = useAsync(
@@ -80,28 +74,17 @@ export function RecommendPage() {
       if (!studentId || missing.length > 0) return null
       const envelope = await api.recommend({
         student_id: studentId,
-        filters,
+        // filters 省略 → 后端按档案偏好生成（ADR-022）
         limit,
         include_too_risky: includeTooRisky,
       })
       return envelope
     },
-    [studentId, missing.length, JSON.stringify(filters), limit, includeTooRisky],
+    [studentId, missing.length, intentKey, limit, includeTooRisky],
   )
 
   const items = recommendation.data?.data.items ?? []
   const stats: RecommendStats | null = recommendation.data?.data.stats ?? null
-
-  /**
-   * "意向地区"选项：优先用后端给的候选池实际分布（ADR-017），
-   * 请求还没回来时用六省市兜底（`count` 显示为 `null` 时不显示数字）。
-   */
-  const regionOptions = useMemo<[string, number | null][]>(() => {
-    const fromStats = stats?.region_options ?? {}
-    const entries = Object.entries(fromStats)
-    if (entries.length > 0) return entries
-    return Object.keys(PROVINCE_LABEL).map((region) => [region, null])
-  }, [stats])
 
   const grouped = useMemo(() => {
     const map = new Map<Tier, RecommendItem[]>()
@@ -188,150 +171,59 @@ export function RecommendPage() {
         </div>
       )}
 
-      {/* ------------------------------ 筛选 ------------------------------ */}
-      <details className="card card-pad">
-        <summary className="cursor-pointer text-sm font-medium text-slate-700">
-          筛选与偏好（可选；改动会重新计算推荐）
-        </summary>
-        <div className="mt-4 grid gap-4 lg:grid-cols-3">
-          <section>
-            <h3 className="text-sm font-semibold text-slate-800">意向地区（院校所在省）</h3>
-            {/*
-              选项来自后端 `stats.region_options`（候选池里院校所在地的实际分布，ADR-017）：
-              规则包只有六省市，但浙江考生的候选池覆盖 31 个省级行政区，
-              只列六省市会让考生想选"江苏/湖北"时无处可选。
-              首次请求返回前先用六省市兜底，避免筛选区空白。
-            */}
-            <div className="mt-2 flex flex-wrap gap-2">
-              {regionOptions.map(([region, count]) => {
-                const picked = regions.includes(region)
-                return (
-                  <button
-                    key={region}
-                    type="button"
-                    aria-pressed={picked}
-                    title={`候选池中 ${count} 个单位`}
-                    className={[
-                      'rounded-lg border px-3 py-1 text-sm',
-                      picked ? 'border-sky-500 bg-sky-600 text-white' : 'border-slate-200 bg-white text-slate-700',
-                    ].join(' ')}
-                    onClick={() =>
-                      setRegions(picked ? regions.filter((item) => item !== region) : [...regions, region])
-                    }
-                  >
-                    {regionLabel(region)}
-                    {count !== null && (
-                      <span className={picked ? 'ml-1 text-xs text-sky-100' : 'ml-1 text-xs text-slate-400'}>
-                        {count}
-                      </span>
-                    )}
-                  </button>
-                )
-              })}
-            </div>
-            <label className="mt-2 flex items-center gap-2 text-xs text-slate-600">
-              <input
-                type="checkbox"
-                checked={intentAsHard}
-                onChange={(event) => setIntentAsHard(event.target.checked)}
-              />
-              把意向地区/层次/门类当作**硬约束**（直接过滤掉，而不只是降权）
-            </label>
-            <p className="mt-1 text-xs text-slate-500">
-              不勾选 = **软偏好**：只影响排序，不会剔除任何院校；勾选 = 直接过滤。
-              院校所在地缺失的院校不会被硬约束剔除（不知道就不能否决）。
-            </p>
-          </section>
-
-          <section>
-            <h3 className="text-sm font-semibold text-slate-800">院校层次</h3>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {LEVEL_OPTIONS.map((level) => {
-                const picked = levels.includes(level)
-                return (
-                  <button
-                    key={level}
-                    type="button"
-                    aria-pressed={picked}
-                    className={[
-                      'rounded-lg border px-3 py-1 text-sm',
-                      picked ? 'border-sky-500 bg-sky-600 text-white' : 'border-slate-200 bg-white text-slate-700',
-                    ].join(' ')}
-                    onClick={() =>
-                      setLevels(picked ? levels.filter((item) => item !== level) : [...levels, level])
-                    }
-                  >
-                    {level}
-                  </button>
-                )
-              })}
-            </div>
-            <h3 className="mt-4 text-sm font-semibold text-slate-800">专业门类</h3>
-            <div className="mt-2 flex max-h-32 flex-wrap gap-2 overflow-y-auto">
-              {categoryOptions.map((category) => {
-                const picked = categories.includes(category)
-                return (
-                  <button
-                    key={category}
-                    type="button"
-                    aria-pressed={picked}
-                    className={[
-                      'rounded-lg border px-3 py-1 text-xs',
-                      picked ? 'border-sky-500 bg-sky-600 text-white' : 'border-slate-200 bg-white text-slate-700',
-                    ].join(' ')}
-                    onClick={() =>
-                      setCategories(
-                        picked ? categories.filter((item) => item !== category) : [...categories, category],
-                      )
-                    }
-                  >
-                    {category}
-                  </button>
-                )
-              })}
-            </div>
-          </section>
-
-          <section className="space-y-3">
-            <div>
-              <label className="label" htmlFor="tuition-max">
-                学费硬上限（元/年）
-              </label>
-              <input
-                id="tuition-max"
-                type="number"
-                min={0}
-                className="input num"
-                value={tuitionMax ?? ''}
-                onChange={(event) => setTuitionMax(event.target.value === '' ? null : Number(event.target.value))}
-                placeholder="留空 = 不限"
-              />
-            </div>
-            <div>
-              <label className="label" htmlFor="limit">
-                返回条数上限
-              </label>
-              <input
-                id="limit"
-                type="number"
-                min={1}
-                max={500}
-                className="input num"
-                value={limit}
-                onChange={(event) => setLimit(Math.max(1, Math.min(500, Number(event.target.value) || 1)))}
-              />
-            </div>
-            <label className="flex items-center gap-2 text-sm text-slate-700">
-              <input
-                type="checkbox"
-                checked={includeTooRisky}
-                onChange={(event) => setIncludeTooRisky(event.target.checked)}
-              />
-              也显示「基本无望」（概率 &lt; 10%）的单位
-            </label>
-          </section>
+      {/* ------------- 意向摘要（筛选已移入建档向导第 4 步，ADR-022） ------------- */}
+      <div className="card card-pad">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold text-slate-800">
+            当前意向（来自建档向导第 4 步）
+          </h2>
+          <Link to="/profile" className="text-xs text-sky-700 hover:underline">
+            去修改意向 →
+          </Link>
         </div>
-      </details>
+        <p className="mt-1 text-xs text-slate-500">
+          推荐列表与志愿表都<strong>直接按档案里的意向生成</strong>，这里不再单独维护一份筛选。
+        </p>
+        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-700">
+          <span>
+            意向地区：
+            {intent.regions.length ? intent.regions.map((item) => regionLabel(item)).join('、') : '不限'}
+          </span>
+          <span>意向层次：{intent.levels.length ? intent.levels.join('、') : '不限'}</span>
+          <span>意向专业：{intent.majors.length ? `${intent.majors.length} 项` : '不限'}</span>
+          <span>排斥专业：{intent.excluded.length ? intent.excluded.join('、') : '无'}</span>
+          <span className={intent.hard ? 'font-medium text-amber-800' : 'text-slate-500'}>
+            意向作用：{intent.hard ? '硬约束（直接过滤）' : '软偏好（只影响排序）'}
+          </span>
+        </div>
+        {intent.majors.length > 0 && (
+          <p className="mt-1 text-xs text-slate-500">已选专业分类：{intent.majors.join('、')}</p>
+        )}
+        <div className="mt-3 flex flex-wrap items-end gap-4">
+          <div>
+            <label className="label" htmlFor="limit">
+              返回条数上限
+            </label>
+            <input
+              id="limit"
+              type="number"
+              min={1}
+              max={500}
+              className="input num w-28"
+              value={limit}
+              onChange={(event) => setLimit(Math.max(1, Math.min(500, Number(event.target.value) || 1)))}
+            />
+          </div>
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              checked={includeTooRisky}
+              onChange={(event) => setIncludeTooRisky(event.target.checked)}
+            />
+            也显示「基本无望」（概率 &lt; 10%）的单位
+          </label>
+        </div>
+      </div>
 
       {/* ------------------------------ 统计 ------------------------------ */}
       {stats && (

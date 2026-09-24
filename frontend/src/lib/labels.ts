@@ -136,7 +136,8 @@ export const RISK_CODE_LABEL: Record<string, string> = {
   NO_OBEDIENCE: '未服从调剂',
   GROUP_UNACCEPTABLE: '组内含排斥专业',
   PHYSICAL_LIMIT: '体检受限',
-  TUITION_HIGH: '学费偏高',
+  // ★ ADR-022：TUITION_HIGH 已移除（它依赖"预算舒适线"，而学费预算随学费维度一并删除）。
+  //   铁律 10（学费必须让家长看见）由展示层保证：卡片/志愿表/报告都显示学费 + 非公办标记。
   SUSPECT_DATA: '数据存疑',
   COLLECTED_ONLY: '仅征集志愿数据',
   SAFETY_MARGIN_NOT_MET: '未通过真保底闸门',

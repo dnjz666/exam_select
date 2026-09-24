@@ -2120,3 +2120,95 @@ return f"msg-{time.time_ns():020d}-{next(_MSG_SEQ):08d}-{uuid.uuid4().hex[:6]}"
 | 只用 `rowid` 排序 | SQLite 在删除最大行后可能复用 rowid，不是可靠定序键 |
 | 让 `_next_id` 只用进程内序号 | 跨进程/重启后序号归零，与已有历史无法比较先后 |
 | 重试失败的测试 | 把 50% 概率的**产品缺陷**当成测试抖动，是典型的掩盖问题 |
+
+
+---
+
+## ADR-022 · 筛选与偏好并入建档向导 + 意向专业分级 + 删除学费维度
+
+- **日期**：2026-09
+- **状态**：已采纳
+- **触发**：用户要求——① 推荐页的筛选与偏好移入建档向导第 4 步；
+  ② 志愿表直接按筛选与偏好生成；③ 意向专业"同规则库中一样继续细分"；
+  ④ 删掉学费选项及其偏好权重。
+
+### 改动
+
+**1. 筛选与偏好只有一个来源：档案**
+
+原先推荐页自己维护一份 `regions/levels/categories/tuitionMax/intentAsHard` 临时状态，
+志愿表又要靠 `planStore.filters` 再传一遍 —— 同一份意向有**三个**可能不一致的副本。
+
+现在：`Preferences` 增加 `intended_levels` 与 `intent_as_hard`，意向只填一次（向导第 4 步）
+并持久化到档案；`evaluate_candidates` / `recommend` 在 `criteria is None` 时
+用 `criteria_from_profile()` 推导，**推荐与志愿表同一份口径**。
+前端 `/recommend` 与 `/plans/generate` 都**不再传 filters**（请求体里的 `filters` 保留为
+agent 工具的高级覆盖入口）。
+
+> ★ 实测踩到的坑：`/recommend` 原先显式传 `intent_as_hard=payload.filters.intent_as_hard`，
+> 而该字段默认 `False` —— 于是档案里的硬约束**在 API 层被无声覆盖**，
+> 端到端验证里"硬约束=计算机类"却混进了医学技术类。已把该字段改为 `bool | None`：
+> `None` = 用档案值，显式 true/false 才覆盖。
+
+**2. 意向专业分级到规则库的两级（门类 → 专业类）**
+
+新增 `GET /meta/major-taxonomy`，直接输出 `core/major_taxonomy` 的 12 门类 / 93 专业类
+（即 `docs/MAJOR_TAXONOMY.md` 的规则库），并附**当前库里真实专业名数量**
+（`major_count`），让考生一眼看出哪些专业类在本省真的可选 —— 空的不给假选项。
+
+前端向导第 4 步改为可折叠的 门类 → 专业类 二级选择器；第三级「具体专业」走既有
+`/majors/search?discipline=…`。选中项写进 `intended_major_categories`
+（该字段本就允许混合填 门类/专业类/专业名），与 `scoring.major_match_detail` 的
+1.00 / 0.80 / 0.55 三档一一对应。
+
+**招生方向（如"中外合作办学"）不作为意向** —— 它是筛选维度，见 `docs/MAJOR_TAXONOMY.md` §1。
+
+**3. 两个被测试逼出来的真实缺陷**
+
+* **专业硬约束只比对 `major.category`**（门类）。考生选「计算机类」（专业类）时
+  `major.category`（"工学"）不等于它 → **全部候选被一票否决**。已改为与
+  `major_match_detail` 同口径。
+* **硬约束不该认"相关门类"**：`RELATED_CATEGORY`（0.30）是**软偏好**的排序概念
+  （工学↔理学↔管理学）。若让它通过硬约束，考生把"工学"设为硬约束会连带放进理学与管理学
+  —— 那不是他说的意思。硬约束只认 专业名 / 专业类 / 门类 三档。
+
+**4. 删除学费维度（保留学费数据与展示）**
+
+| 删除 | 保留 |
+|---|---|
+| `Preferences.budget_comfortable` / `budget_max` / `weight_tuition` | `AdmissionUnit.tuition` 数据 |
+| `FilterCriteria.tuition_max` + `filters.TUITION_LIMIT` | 卡片 / 志愿表 / 报告上的学费显示 |
+| `scoring.tuition_score()` + `TUITION_SCORE_*` + `ScoreBreakdown.tuition_score` | 非公办院校的「非公办」标记 |
+| `risk.TUITION_HIGH`（**风险码表 14 → 13**） | 名师铁律 10 的落地方式 |
+| `parser` 对"学费不超过 X"的解析 | — |
+
+> ★ **铁律 10 没有被削弱**：它要求"中外合作/民办/独立学院的学费必须在卡片上明示"，
+> 而这件事**本来就由展示层保证**（`Recommend.tsx` / `PlanRow.tsx` / `Report.tsx` 都显示
+> `formatTuition`，并对 `is_public=False` 打「非公办」标记）。
+> `TUITION_HIGH` 只是"超过**你自己设的**预算舒适线"的提示 —— 预算输入没了，它就没有判据，
+> 留着会变成永远不触发的死代码。因此**移除风险码而不是编一个阈值**（编阈值需要来源，
+> 违反"没有来源的数字不许写进代码"）。
+
+### 验证
+
+* 新增 `tests/test_profile_driven_intent.py`（11 例）：软/硬偏好语义、三档专业硬约束、
+  档案驱动评估、软偏好仍影响效用、规则库端点与规则库逐项一致。
+* **端到端**（真跑 `/recommend` + `/plans/generate`，不传 filters）：
+  档案设「计算机类 + 硬约束」→ 推荐 15/15 全为计算机类；志愿表 80 个志愿**0 越界**；
+  改回软偏好 → 恢复混合（12 计算机类 + 医学技术类等）；档案 preferences 无任何学费字段。
+* 后端全量 **512 测试通过**；`frontend/openapi.snapshot.json` 已从实时 schema 刷新
+  （22 端点 / 73 schema）；`pnpm typecheck` 通过。
+* ⚠️ `pnpm test`（vitest）在 agent 沙箱内 `spawn EPERM`（HANDOVER §3 已记录的固有限制），
+  **未能在本会话验证**；`pnpm build` / `pnpm smoke` 同理，需真实终端。
+
+### 被否决的方案
+
+| 方案 | 否决理由 |
+|---|---|
+| 推荐页保留筛选面板，只是"预填"档案值 | 仍会有两份副本，改动任一处就漂移；用户要的是"只填一次" |
+| 让志愿表读 `planStore.filters`（前端再传一遍） | 前端重算 = 与推荐口径漂移；筛选是**算法输入**，必须由后端按档案统一推导 |
+| 意向专业只做门类（现状）或只做专业名 | 门类太粗（"工学"含 32 个专业类）；专业名太细（1110+ 个）。规则库的**专业类**才是考生真正会说的一级 |
+| 把招生方向也做成意向选项 | 方向是筛选维度（是否接受中外合作/民办），不是"想学什么"；混在一起语义会乱 |
+| 前端自己列一份 12 门类清单 | 与规则库必然漂移；且**专业类**这一级前端无从得知 |
+| 给 `TUITION_HIGH` 编一个"学费 > 20000"的阈值 | 阈值没有来源，违反红线；且与"删掉学费选项"的意图相悖 |
+| 保留 `budget_*` 字段只从 UI 移除 | 死字段会继续出现在契约与文档里，误导下一个接手的人 |

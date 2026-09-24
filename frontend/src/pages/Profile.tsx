@@ -16,6 +16,14 @@ const STEPS = ['选省份', '选选考科目', '填成绩', '偏好与身体条�
 const REGION_OPTIONS = Object.keys(PROVINCE_LABEL)
 
 /**
+ * 意向院校层次候选项（ADR-022：从推荐页移入建档向导）。
+ *
+ * ★ 这里列的是**标签**，不是"好学校"的判据 —— 没有这些标签的院校（省重点、行业强校）
+ * 不等于层次低。判据与解释见 `agent.tools.get_college_level_facts` 与 DOMAIN_RULES §5.1。
+ */
+const LEVEL_OPTIONS = ['985', '211', '双一流']
+
+/**
  * 建档向导（AGENTS.md §8.1）。
  *
  * 前 3 步是硬门槛：未完成不得进入推荐（`/recommend` 会再校验一次 `missing_fields`）。
@@ -707,20 +715,17 @@ function Step4Preferences({
   const exam = profile.physicalExam
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<unknown>(null)
-  const majors = useAsync(() => api.catalog.majorSearch({ limit: 300 }), [])
-  const categories = useMemo(() => {
-    const seen = new Set<string>()
-    for (const major of majors.data?.data ?? []) {
-      if (major.category) seen.add(major.category)
-    }
-    return [...seen].sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'))
-  }, [majors.data])
+  // ★ ADR-022：意向专业分级选择 —— 门类 → 专业类，来自**后端规则库**
+  //   （`/meta/major-taxonomy`，即 docs/MAJOR_TAXONOMY.md）。前端不自己列门类。
+  const taxonomy = useAsync(() => api.meta.majorTaxonomy(), [])
+  const [expandedCategories, setExpandedCategories] = useState<string[]>([])
 
   const weights: Array<{ key: keyof typeof preferences; label: string }> = [
     { key: 'weight_region', label: '地区' },
     { key: 'weight_college_level', label: '院校层次' },
     { key: 'weight_major', label: '专业匹配' },
-    { key: 'weight_tuition', label: '学费' },
+    // ★ ADR-022：学费维度已移除（用户要求）—— 学费不再参与排序，
+    //   但卡片/志愿表/报告仍显示学费，非公办院校另有标记（名师铁律 10）。
     { key: 'weight_city', label: '城市' },
     { key: 'weight_misc', label: '其他' },
   ]
@@ -728,6 +733,7 @@ function Step4Preferences({
   const missing = profile.student?.missing_fields ?? []
   const intendedRegions = preferences.intended_regions ?? []
   const intendedCategories = preferences.intended_major_categories ?? []
+  const intendedLevels = preferences.intended_levels ?? []
   const excludedMajors = preferences.excluded_majors ?? []
 
   return (
@@ -736,6 +742,9 @@ function Step4Preferences({
         <h2 className="card-title">第 4 步 · 偏好与身体条件（可跳过）</h2>
         <p className="muted mt-1">
           这些是**软偏好**（影响排序）与**硬约束**（体检、语种；影响能否报）。跳过即采用默认值。
+        </p>
+        <p className="mt-1 text-xs text-slate-500">
+          ★ 推荐列表与志愿表都**直接按这里的意向生成**，不需要在推荐页再填一次筛选。
         </p>
 
         {missing.length > 0 && (
@@ -784,66 +793,188 @@ function Step4Preferences({
             </p>
           </section>
 
-          <section>
-            <h3 className="text-sm font-semibold text-slate-800">意向专业门类</h3>
-            {majors.loading && <p className="muted mt-2">读取专业库…</p>}
-            {categories.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-2">
-                {categories.map((category) => {
-                  const picked = intendedCategories.includes(category)
-                  return (
-                    <button
-                      key={category}
-                      type="button"
-                      aria-pressed={picked}
-                      className={[
-                        'rounded-lg border px-3 py-1.5 text-sm transition',
-                        picked
-                          ? 'border-sky-500 bg-sky-600 text-white'
-                          : 'border-slate-200 bg-white text-slate-700 hover:border-sky-300',
-                      ].join(' ')}
-                      onClick={() =>
-                        profile.patchPreferences({
-                          intended_major_categories: picked
-                            ? intendedCategories.filter((item) => item !== category)
-                            : [...intendedCategories, category],
-                        })
-                      }
-                    >
-                      {category}
-                    </button>
-                  )
-                })}
-              </div>
+          <section className="lg:col-span-2">
+            <h3 className="text-sm font-semibold text-slate-800">
+              意向专业（门类 → 专业类，可多选；空 = 不限）
+            </h3>
+            <p className="mt-1 text-xs text-slate-500">
+              分级与**专业分类规则库**一致（教育部目录 12 门类 / 93 专业类，见
+              <code className="mx-1">docs/MAJOR_TAXONOMY.md</code>）。点门类可整体选中，也可展开只挑专业类。
+              选中后按匹配层级打分：专业类 0.80 / 门类 0.55；第三级「具体专业」在推荐页可再筛。
+            </p>
+            {taxonomy.loading && <p className="muted mt-2">读取专业分类规则库…</p>}
+            {!!taxonomy.error && (
+              <p className="mt-2 text-xs text-rose-700">专业分类规则库读取失败，请稍后重试。</p>
+            )}
+            <div className="mt-2 space-y-2">
+              {(taxonomy.data?.data.categories ?? []).map((category) => {
+                const disciplines = category.disciplines ?? []
+                const expanded = expandedCategories.includes(category.name)
+                const pickedDisciplines = disciplines
+                  .map((d) => d.name)
+                  .filter((name) => intendedCategories.includes(name))
+                const categoryPicked = intendedCategories.includes(category.name)
+                return (
+                  <div key={category.name} className="rounded-lg border border-slate-200">
+                    <div className="flex flex-wrap items-center gap-2 px-3 py-2">
+                      <button
+                        type="button"
+                        aria-pressed={categoryPicked}
+                        className={[
+                          'rounded-md border px-2.5 py-1 text-sm transition',
+                          categoryPicked
+                            ? 'border-sky-500 bg-sky-600 text-white'
+                            : 'border-slate-200 bg-white text-slate-700 hover:border-sky-300',
+                        ].join(' ')}
+                        onClick={() =>
+                          profile.patchPreferences({
+                            intended_major_categories: categoryPicked
+                              ? intendedCategories.filter((item) => item !== category.name)
+                              : [...intendedCategories, category.name],
+                          })
+                        }
+                      >
+                        {category.name}
+                        <span className="ml-1 text-xs opacity-75">
+                          {disciplines.length}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        className="text-xs text-sky-700 hover:underline"
+                        onClick={() =>
+                          setExpandedCategories(
+                            expanded
+                              ? expandedCategories.filter((item) => item !== category.name)
+                              : [...expandedCategories, category.name],
+                          )
+                        }
+                      >
+                        {expanded ? '收起' : `展开 ${disciplines.length} 个专业类`}
+                        {pickedDisciplines.length > 0 && !expanded
+                          ? `（已选 ${pickedDisciplines.length}）`
+                          : ''}
+                      </button>
+                    </div>
+                    {expanded && (
+                      <div className="flex flex-wrap gap-2 border-t border-slate-100 px-3 py-2">
+                        {disciplines.map((discipline) => {
+                          const picked = intendedCategories.includes(discipline.name)
+                          const empty = discipline.major_count === 0
+                          return (
+                            <button
+                              key={discipline.name}
+                              type="button"
+                              aria-pressed={picked}
+                              disabled={empty}
+                              title={empty ? '当前库里没有这个专业类的招生专业' : undefined}
+                              className={[
+                                'rounded-md border px-2.5 py-1 text-xs transition',
+                                empty
+                                  ? 'cursor-not-allowed border-slate-100 bg-slate-50 text-slate-300'
+                                  : picked
+                                    ? 'border-sky-500 bg-sky-600 text-white'
+                                    : 'border-slate-200 bg-white text-slate-700 hover:border-sky-300',
+                              ].join(' ')}
+                              onClick={() =>
+                                profile.patchPreferences({
+                                  intended_major_categories: picked
+                                    ? intendedCategories.filter((item) => item !== discipline.name)
+                                    : [...intendedCategories, discipline.name],
+                                })
+                              }
+                            >
+                              {discipline.name}
+                              {!empty && (
+                                <span className="ml-1 opacity-60">{discipline.major_count}</span>
+                              )}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+            {intendedCategories.length > 0 && (
+              <p className="mt-2 text-xs text-slate-600">
+                已选 {intendedCategories.length} 项：
+                {intendedCategories.map((item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    className="ml-1 rounded bg-slate-100 px-1.5 py-0.5 text-xs hover:bg-slate-200"
+                    onClick={() =>
+                      profile.patchPreferences({
+                        intended_major_categories: intendedCategories.filter((x) => x !== item),
+                      })
+                    }
+                  >
+                    {item} ✕
+                  </button>
+                ))}
+              </p>
             )}
           </section>
 
           <section className="space-y-3">
-            <h3 className="text-sm font-semibold text-slate-800">预算与排斥专业</h3>
-            <div>
-              <label className="label" htmlFor="budget-max">
-                学费硬上限（元/年，超过直接剔除）
-              </label>
-              <input
-                id="budget-max"
-                className="input num"
-                type="number"
-                min={0}
-                value={preferences.budget_max ?? ''}
-                onChange={(event) =>
-                  profile.patchPreferences({
-                    budget_max: event.target.value === '' ? null : Number(event.target.value),
-                  })
-                }
-                placeholder="留空 = 不限"
-              />
-              <p className="mt-1 text-xs text-slate-500">
-                中外合作办学、民办院校学费常在 2–8 万/年，这个上限是**硬约束**。
-              </p>
+            <h3 className="text-sm font-semibold text-slate-800">意向院校层次</h3>
+            <div className="flex flex-wrap gap-2">
+              {LEVEL_OPTIONS.map((level) => {
+                const picked = intendedLevels.includes(level)
+                return (
+                  <button
+                    key={level}
+                    type="button"
+                    aria-pressed={picked}
+                    className={[
+                      'rounded-lg border px-3 py-1.5 text-sm transition',
+                      picked
+                        ? 'border-sky-500 bg-sky-600 text-white'
+                        : 'border-slate-200 bg-white text-slate-700 hover:border-sky-300',
+                    ].join(' ')}
+                    onClick={() =>
+                      profile.patchPreferences({
+                        intended_levels: picked
+                          ? intendedLevels.filter((item) => item !== level)
+                          : [...intendedLevels, level],
+                      })
+                    }
+                  >
+                    {level}
+                  </button>
+                )
+              })}
             </div>
+            <p className="text-xs text-slate-500">
+              没有 985/211/双一流 标签的院校**不等于层次低**（省重点、行业强校很常见），
+              详见对话页的"XX大学怎么样"。
+            </p>
+            <label className="flex items-start gap-2 rounded-lg bg-slate-50 p-2 text-sm">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={preferences.intent_as_hard ?? false}
+                onChange={(event) =>
+                  profile.patchPreferences({ intent_as_hard: event.target.checked })
+                }
+              />
+              <span>
+                把以上意向<strong>当作硬约束</strong>
+                <span className="block text-xs text-slate-500">
+                  不勾选（默认）= 只影响排序，仍会推荐意向外的院校；
+                  勾选 = 直接过滤掉不符合意向的院校。**推荐页与志愿表都按这里生成，不需要再填一次。**
+                </span>
+              </span>
+            </label>
+          </section>
+
+          <section className="space-y-3">
+            <h3 className="text-sm font-semibold text-slate-800">明确排斥的专业</h3>
             <div>
               <label className="label" htmlFor="excluded">
-                明确排斥的专业（顿号或逗号分隔）
+                顿号或逗号分隔
               </label>
               <input
                 id="excluded"
