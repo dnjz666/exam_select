@@ -37,7 +37,7 @@ export const TIER_STYLE: Record<Tier, TierStyle> = {
   WEN: {
     label: '稳',
     name: '稳',
-    hint: '大概率能上',
+    hint: '当前概率区间落在稳档范围，结果仍有不确定性',
     badge: 'bg-sky-100 text-sky-800 ring-1 ring-sky-200',
     fill: 'bg-tier-wen',
     hex: '#0284c7',
@@ -45,7 +45,7 @@ export const TIER_STYLE: Record<Tier, TierStyle> = {
   BAO: {
     label: '保',
     name: '保',
-    hint: '很稳（且通过真保底余量闸门）',
+    hint: '通过保档安全闸门，仍不构成录取承诺',
     badge: 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-200',
     fill: 'bg-tier-bao',
     hex: '#059669',
@@ -53,7 +53,7 @@ export const TIER_STYLE: Record<Tier, TierStyle> = {
   DIAN: {
     label: '垫',
     name: '垫',
-    hint: '绝对兜底（且通过真保底余量闸门）',
+    hint: '通过垫档安全闸门，仍需核对专业与规则',
     badge: 'bg-indigo-100 text-indigo-800 ring-1 ring-indigo-200',
     fill: 'bg-tier-dian',
     hex: '#4f46e5',
@@ -150,7 +150,7 @@ export const RISK_CODE_LABEL: Record<string, string> = {
 }
 
 export function riskCodeLabel(code: string): string {
-  return RISK_CODE_LABEL[code] ?? code
+  return RISK_CODE_LABEL[code] ?? '其他风险提示'
 }
 
 /** 六省市中文名（省代码来自后端规则包 keys）。 */

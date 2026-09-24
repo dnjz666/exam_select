@@ -207,7 +207,9 @@ export async function submitDraft(): Promise<StudentPayload> {
 
 /** 档案是否齐全（`missing_fields` 为空才允许进入推荐，§8.1）。 */
 export function isProfileComplete(student: StudentPayload | null): boolean {
-  return Boolean(student) && (student?.missing_fields ?? []).length === 0
+  if (!student) return false
+  const hasScore = student.total_score > 0
+  return (student.missing_fields ?? []).length === 0 && hasScore
 }
 
 /** 直接读取当前草稿（非 hook 场景，如事件回调）。 */

@@ -10,7 +10,7 @@ import { GradientChart } from '../components/GradientChart'
 import { PlanRow } from '../components/PlanRow'
 import { RiskPanel } from '../components/RiskPanel'
 import { ErrorNote, SourceLink, WarningList } from '../components/StateBlocks'
-import { formatNumber, formatRank } from '../lib/format'
+import { formatNumber, formatRank, formatPlanCount, formatTuition } from '../lib/format'
 import { scrollToElement, useAsync } from '../lib/hooks'
 import { UNIT_TYPE_LABEL, provinceLabel } from '../lib/labels'
 import { isProfileComplete, useProfileStore } from '../store/profile'
@@ -259,9 +259,6 @@ export function PlanBoardPage() {
             生成时会按冲稳保垫配额挑选候选，并强制让最后一档落在「保/垫」；
             你在推荐页加入的「意愿序」会作为排序意愿。
           </p>
-          <button type="button" className="btn-primary mt-3" onClick={() => void generate()}>
-            立即生成
-          </button>
         </div>
       )}
 
@@ -300,7 +297,7 @@ export function PlanBoardPage() {
                   </button>
                 </div>
                 <p className="muted mt-1">
-                  平行志愿虽是"平行"，但检索严格按填报顺序：**最想去的必须放最前**。
+                  平行志愿按填报顺序检索，请把最想去的志愿放在前面。
                   拖拽或使用上移/下移按钮调整；每次改动都会同步到后端并重算风险。
                 </p>
                 {shortage !== null && shortage > 0 && (
@@ -370,7 +367,7 @@ export function PlanBoardPage() {
                 </div>
                 <p className="mt-2 text-xs text-slate-500">
                   「保/垫」偏少是正常的：安全闸门会把给不出 30% 余量的高概率单位降级为「稳」，
-                  所以不要指望配额比例精确成立——但**垫底志愿必须有**。
+                  配额比例可能因候选不足而变化，但垫底志愿必须保留。
                 </p>
               </div>
 
@@ -478,7 +475,7 @@ function AddPanel({
                   {item.probability_interval && item.probability_interval.length >= 2
                     ? `${((item.probability_interval[0] ?? 0) * 100).toFixed(0)}%–${((item.probability_interval[1] ?? 0) * 100).toFixed(0)}%`
                     : '概率不可用'}{' '}
-                  · 计划 {item.unit.plan_count} 人 · 学费 {item.unit.tuition} 元/年
+                  · 计划 {formatPlanCount(item.unit.plan_count)} 人 · 学费 {formatTuition(item.unit.tuition)}
                 </p>
               </div>
               <button type="button" className="btn-secondary shrink-0" onClick={() => onAdd(item.unit.unit_id)}>

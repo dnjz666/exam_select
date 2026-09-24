@@ -63,7 +63,7 @@ export function formatCoverage(value: number | null | undefined): string {
 
 /** 学费（元/年）。名师铁律 10：中外合作/民办必须在推荐卡片上明示。 */
 export function formatTuition(yuan: number | null | undefined): string {
-  if (!isFiniteNumber(yuan)) return DASH
+  if (!isFiniteNumber(yuan) || yuan <= 0) return '未收录（请核对招生章程）'
   return `${Math.round(yuan).toLocaleString('zh-CN')} 元/年`
 }
 

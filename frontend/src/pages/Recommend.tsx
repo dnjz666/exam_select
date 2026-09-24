@@ -16,17 +16,17 @@ import { TierBadge } from '../components/TierBadge'
 import { TierLegend } from '../components/Disclaimer'
 import { formatNumber, formatPlanCount, formatRank, formatTuition, describeSubjectRequirement } from '../lib/format'
 import { useAsync } from '../lib/hooks'
-import { TIER_LABEL, TIER_ORDER, TIER_STYLE, UNIT_TYPE_LABEL, missingFieldLabel, provinceLabel, regionLabel } from '../lib/labels'
-import { useProfileStore } from '../store/profile'
+import { TIER_LABEL, TIER_ORDER, TIER_STYLE, UNIT_TYPE_LABEL, missingFieldLabel, provinceLabel, regionLabel, riskCodeLabel } from '../lib/labels'
+import { isProfileComplete, useProfileStore } from '../store/profile'
 import { usePlanStore } from '../store/plan'
 
 const DEFAULT_LIMIT = 60
 
 const TIER_HEADLINE: Record<string, string> = {
   CHONG: '冲 —— 有机会但不稳，放在志愿表前段',
-  WEN: '稳 —— 大概率能上，志愿表的主体',
-  BAO: '保 —— 很稳，且通过了"真保底"余量闸门',
-  DIAN: '垫 —— 绝对兜底',
+  WEN: '稳 —— 当前概率区间落在稳档范围，结果仍有不确定性',
+  BAO: '保 —— 通过保档安全闸门，仍不构成录取承诺',
+  DIAN: '垫 —— 通过垫档安全闸门，仍需核对专业与规则',
   TOO_RISKY: '基本无望（默认不推荐，仅在你显式开启时显示）',
   NO_DATA: '无可用历史数据（不参与志愿表生成）',
 }
@@ -46,7 +46,9 @@ export function RecommendPage() {
   const [limit, setLimit] = useState(DEFAULT_LIMIT)
 
   const studentId = profile.studentId
-  const missing = profile.student?.missing_fields ?? []
+  const reportedMissing = profile.student?.missing_fields ?? []
+  const complete = isProfileComplete(profile.student)
+  const missing = complete ? [] : reportedMissing.length > 0 ? reportedMissing : ['total_score']
 
   const tiers = useAsync(() => api.meta.tiers(), [])
 
@@ -85,6 +87,12 @@ export function RecommendPage() {
 
   const items = recommendation.data?.data.items ?? []
   const stats: RecommendStats | null = recommendation.data?.data.stats ?? null
+  const sourceFlags = items.flatMap((item) => [
+    item.unit.is_synthetic,
+    ...(item.evidence ?? []).map((entry) => entry.is_synthetic),
+  ])
+  const hasSyntheticData = sourceFlags.some(Boolean)
+  const hasSourceData = sourceFlags.some((flag) => !flag)
 
   const grouped = useMemo(() => {
     const map = new Map<Tier, RecommendItem[]>()
@@ -292,6 +300,12 @@ export function RecommendPage() {
       )}
 
       {recommendation.data?.warnings?.length ? <WarningList warnings={recommendation.data.warnings} /> : null}
+      {items.length > 0 && (
+        <p className="callout-muted text-sm" role="status">
+          当前列表来源：{hasSyntheticData && hasSourceData ? '真实来源与模拟数据混合' : hasSyntheticData ? '含模拟数据' : '均标记为真实来源'}。
+          每条院校计划与历年证据均标注数据性质；模拟数据不可用于真实填报。
+        </p>
+      )}
 
       {/* ------------------------------ 列表 ------------------------------ */}
       {recommendation.loading && <Loading label="正在按位次法计算每个单位的录取概率…" rows={4} />}
@@ -315,17 +329,17 @@ export function RecommendPage() {
         />
       )}
 
-      <div className="space-y-6">
-        {TIER_ORDER.filter((tier) => (grouped.get(tier)?.length ?? 0) > 0).map((tier) => {
+      <div className="space-y-3">
+        {TIER_ORDER.filter((tier) => (grouped.get(tier)?.length ?? 0) > 0).map((tier, tierIndex) => {
           const bucket = grouped.get(tier) ?? []
           const style = TIER_STYLE[tier]
           return (
-            <section key={tier} id={`tier-${tier}`}>
-              <h2 className="flex items-center gap-3 text-base font-semibold">
+            <details key={tier} id={`tier-${tier}`} open={tierIndex === 0} className="card card-pad">
+              <summary className="flex cursor-pointer list-none items-center gap-3 text-base font-semibold">
                 <span className={`chip ${style.badge}`}>{style.name}</span>
                 <span className="num text-slate-500">{bucket.length}</span>
                 <span className="text-sm font-normal text-slate-500">{TIER_HEADLINE[tier]}</span>
-              </h2>
+              </summary>
               <div className="mt-3 grid gap-3 xl:grid-cols-2">
                 {bucket.map((item) => (
                   <RecommendCard
@@ -336,7 +350,7 @@ export function RecommendPage() {
                   />
                 ))}
               </div>
-            </section>
+            </details>
           )
         })}
       </div>
@@ -383,7 +397,17 @@ function RecommendCard({
             {unit.major_name}
           </p>
           <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+            <span className={unit.is_synthetic ? 'font-medium text-amber-700' : 'text-emerald-700'}>
+              招生计划：{unit.is_synthetic ? '模拟数据' : '真实来源'}
+            </span>
             <span>{college?.province ? `${provinceLabel(college.province)}${college.city ?? ''}` : '—'}</span>
+            <span>
+              招生计划来源：
+              <SourceLink
+                url={unit.source_url}
+                label={unit.source_url?.startsWith('http') ? '查看来源' : unit.source_url || '无来源链接'}
+              />
+            </span>
             <span>选考要求：{describeSubjectRequirement(unit.subject_requirement)}</span>
             <span className={planTooSmall ? 'font-medium text-amber-700' : ''}>
               计划 {formatPlanCount(unit.plan_count)}
@@ -426,7 +450,7 @@ function RecommendCard({
         <ul className="mt-2 flex flex-wrap gap-2 text-xs">
           {item.warnings.map((warning) => (
             <li key={warning} className="chip bg-amber-100 text-amber-800 ring-1 ring-amber-200">
-              {warning}
+              {riskCodeLabel(warning)}
             </li>
           ))}
         </ul>
@@ -481,7 +505,7 @@ function RecommendCard({
           </div>
 
           <p className="text-xs text-slate-500">
-            院校来源：<SourceLink url={college?.source_url ?? null} label={college?.source_url ?? '无'} />
+            院校信息来源：<SourceLink url={college?.source_url ?? null} label={college?.source_url ?? '无'} />
           </p>
         </div>
       )}

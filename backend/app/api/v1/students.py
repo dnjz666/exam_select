@@ -43,7 +43,13 @@ def _student_payload(row: db.Student) -> dict:
         "bonus_points": row.bonus_points,
         "bonus_type": row.bonus_type,
         "preferences": profile.preferences.model_dump(mode="json"),
-        "missing_fields": profile.missing_fields,
+        # Recompute instead of trusting the persisted list: older drafts may have
+        # treated an empty score (stored as 0) as complete.
+        "missing_fields": student_service.compute_missing_fields(
+            subjects=profile.subjects,
+            total_score=row.total_score,
+            rank=row.rank,
+        ),
         "rank_source_url": row.rank_source_url,
         "created_at": row.created_at,
         "updated_at": row.updated_at,

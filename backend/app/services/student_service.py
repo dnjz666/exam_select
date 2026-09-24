@@ -48,9 +48,11 @@ def compute_missing_fields(
     missing: list[str] = []
     if len(subjects) != REQUIRED_SUBJECT_COUNT:
         missing.append("subjects")
-    if total_score is None:
+    has_score = total_score is not None and total_score > 0
+    has_rank = rank is not None and rank > 0
+    if not has_score:
         missing.append("total_score")
-    if total_score is None and rank is None:
+    if not has_score and not has_rank:
         missing.append("rank")  # 分数与位次都缺 → 必须补一个
     return missing
 
@@ -136,9 +138,14 @@ def require_complete(row: db.Student) -> StudentProfile:
     from app.db import repositories as _repo
 
     profile = _repo.row_to_student(row)
-    if profile.missing_fields:
-        raise ProfileIncomplete(profile.missing_fields)
-    return profile
+    missing = compute_missing_fields(
+        subjects=profile.subjects,
+        total_score=row.total_score,
+        rank=row.rank,
+    )
+    if missing:
+        raise ProfileIncomplete(missing)
+    return profile.model_copy(update={"missing_fields": missing})
 
 
 def resolve_rank(session: Session, row: db.Student) -> dict:

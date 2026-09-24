@@ -52,6 +52,8 @@ describe('数值格式化', () => {
 
   it('学费与覆盖率带单位', () => {
     expect(formatTuition(6000)).toBe('6,000 元/年')
+    expect(formatTuition(null)).toBe('未收录（请核对招生章程）')
+    expect(formatTuition(0)).toBe('未收录（请核对招生章程）')
     expect(formatCoverage(0.7891)).toBe('78.9%')
     expect(formatCoverage(null)).toBe('—')
   })

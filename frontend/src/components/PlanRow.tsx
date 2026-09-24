@@ -102,6 +102,9 @@ export function PlanRow({
                 非公办
               </span>
             )}
+            <span className={unit.is_synthetic ? 'chip bg-amber-100 text-amber-800 ring-1 ring-amber-200' : 'chip bg-emerald-100 text-emerald-800 ring-1 ring-emerald-200'}>
+              {unit.is_synthetic ? '模拟数据' : '真实来源'}
+            </span>
           </div>
 
           <p className="mt-1 text-sm text-slate-700">
@@ -119,6 +122,13 @@ export function PlanRow({
             </span>
             {/* 名师铁律 10：学费必须让家长看见 */}
             <span>学费 {formatTuition(unit.tuition)}</span>
+            <span>
+              招生计划来源：
+              <SourceLink
+                url={unit.source_url}
+                label={unit.source_url?.startsWith('http') ? '查看来源' : unit.source_url || '无来源链接'}
+              />
+            </span>
             <span>学制 {unit.duration} 年</span>
             {unit.campus && <span>校区 {unit.campus}</span>}
             {studentRank && <span>你的位次 {formatRank(studentRank)}</span>}
@@ -174,7 +184,7 @@ export function PlanRow({
 
           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
             <span className="text-slate-400">单位 {shortUnitId(unit.unit_id)}</span>
-            <SourceLink url={college?.source_url ?? null} label="院校来源" />
+            <SourceLink url={college?.source_url ?? null} label="院校信息来源" />
           </div>
         </div>
 

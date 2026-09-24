@@ -46,7 +46,6 @@ export function RiskPanel({ risks, violations = [], onLocate, emptyHint }: RiskP
                   <span className={`chip ${RISK_LEVEL_STYLE['HIGH']?.badge ?? ''}`}>
                     {riskCodeLabel(risk.code)}
                   </span>
-                  <span className="text-xs text-rose-700">{risk.code}</span>
                   {risk.unit_id && onLocate && (
                     <button
                       type="button"
@@ -77,7 +76,6 @@ export function RiskPanel({ risks, violations = [], onLocate, emptyHint }: RiskP
                 <div className="flex flex-wrap items-center gap-2">
                   <span className={`chip ${style.badge}`}>{style.label}</span>
                   <span className="text-sm font-medium text-slate-700">{riskCodeLabel(risk.code)}</span>
-                  <span className="text-xs text-slate-400">{risk.code}</span>
                 </div>
                 <p className="mt-1.5 text-sm text-slate-600">{risk.message}</p>
                 <p className="mt-0.5 text-sm text-slate-500">建议：{risk.suggestion}</p>
@@ -93,7 +91,7 @@ export function RiskPanel({ risks, violations = [], onLocate, emptyHint }: RiskP
           <ul className="mt-1 space-y-1 text-xs">
             {violations.map((violation, index) => (
               <li key={`${violation.code}-${index}`}>
-                <span className="font-mono">{violation.code}</span>：{violation.message}
+                {violation.message}
               </li>
             ))}
           </ul>

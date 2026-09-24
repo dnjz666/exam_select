@@ -252,6 +252,50 @@ def test_create_student_draft_reports_missing_fields(client: TestClient) -> None
     assert response.json()["warnings"], "缺字段必须给出提示"
 
 
+def test_zero_score_draft_cannot_become_complete_after_patch(client: TestClient) -> None:
+    draft = client.post(
+        f"{API}/students",
+        json={"province": "zhejiang", "year": 2026, "subjects": ["物理", "化学", "地理"]},
+    ).json()["data"]
+    patched = client.patch(
+        f"{API}/students/{draft['id']}",
+        json={"total_score": 0, "subjects": ["物理", "化学", "地理"]},
+    )
+    assert patched.status_code == 200
+    assert "total_score" in patched.json()["data"]["missing_fields"]
+    fetched = client.get(f"{API}/students/{draft['id']}")
+    assert "total_score" in fetched.json()["data"]["missing_fields"]
+
+
+def test_legacy_zero_score_row_cannot_bypass_calculation_gates(client: TestClient) -> None:
+    from app.db import models as db
+
+    draft = client.post(
+        f"{API}/students",
+        json={
+            "province": "zhejiang",
+            "year": 2026,
+            "subjects": ["物理", "化学", "地理"],
+            "total_score": 0,
+            "rank": 12000,
+        },
+    ).json()["data"]
+    with SessionLocal() as session:
+        row = session.get(db.Student, draft["id"])
+        assert row is not None
+        row.missing_fields = "[]"  # 复现旧版草稿：空分数曾被持久化为空缺项
+        session.commit()
+
+    for path, payload in (
+        ("/recommend", {"student_id": draft["id"], "limit": 3}),
+        ("/plans/generate", {"student_id": draft["id"]}),
+    ):
+        response = client.post(f"{API}{path}", json=payload)
+        assert response.status_code == 409, response.text
+        assert response.json()["error"]["code"] == "PROFILE_INCOMPLETE"
+        assert "total_score" in response.json()["error"]["details"]["missing_fields"]
+
+
 def test_get_and_patch_student(client: TestClient, student_id: str) -> None:
     fetched = client.get(f"{API}/students/{student_id}")
     assert fetched.status_code == 200
@@ -473,10 +517,12 @@ def test_plan_generate_and_get(client: TestClient, student_id: str, plan_id: str
     assert sum(plan["tier_distribution"].values()) == len(plan["items"])
     assert plan["rule"]["source_url"]
     assert generated["evidence"], "志愿表必须带逐项来源"
-    # 每个志愿都必须能追溯到历史来源（或显式标注为新专业类比）
+    # 只为真实存在的历史记录生成 unit_history；无本单位历史时由报告页单独说明。
     unit_evidence = [entry for entry in generated["evidence"] if entry["what"] == "unit_history"]
-    assert len(unit_evidence) >= len(plan["items"])
-    assert all(entry.get("source_url") or entry.get("note") for entry in unit_evidence)
+    planned_ids = {item["unit"]["unit_id"] for item in plan["items"]}
+    assert all(entry["unit_id"] in planned_ids for entry in unit_evidence)
+    assert all(isinstance(entry.get("is_synthetic"), bool) for entry in unit_evidence)
+    assert all(entry.get("source_url") for entry in unit_evidence)
 
     fetched = client.get(f"{API}/plans/{plan_id}")
     assert fetched.status_code == 200
@@ -591,7 +637,7 @@ def test_plan_export_pdf_and_xlsx(client: TestClient, plan_id: str) -> None:
     assert bad.status_code == 422  # 只允许 pdf|xlsx
 
 
-def test_plan_export_contains_disclaimer_and_sources(plan_id: str) -> None:
+def test_plan_export_contains_disclaimer_and_sources(plan_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """报告必须含免责声明与来源清单（§8 / §12）。"""
     import io
 
@@ -609,7 +655,7 @@ def test_plan_export_contains_disclaimer_and_sources(plan_id: str) -> None:
         report = report_service._with_college_names(
             session, report_service.build_report(session, bundle, student)
         )
-    assert "严禁用于真实填报" in report["disclaimer"]
+    assert "不可用于真实填报" in report["disclaimer"]
     assert report["sources"], "必须有来源清单"
     assert report["risks"] is not None
 
@@ -618,6 +664,112 @@ def test_plan_export_contains_disclaimer_and_sources(plan_id: str) -> None:
     note_sheet = workbook["说明与来源"]
     text = "\n".join(str(cell.value) for row in note_sheet.iter_rows() for cell in row if cell.value)
     assert "免责声明" in text and "数据来源清单" in text
+    assert "数据性质" in [cell.value for cell in workbook["志愿表"][1]]
+    assert "计划来源" in [cell.value for cell in workbook["志愿表"][1]]
+    assert "数据性质" in [cell.value for cell in workbook["历史证据"][1]]
+    assert all(item["source_url"] in report["sources"] for item in report["plan"]["items"] if item["source_url"])
+    assert all(
+        isinstance(entry.get("is_synthetic"), bool)
+        for item in report["plan"]["items"]
+        for entry in item["evidence"]
+    )
+
+    # Verify the actual table cells handed to ReportLab; its built-in CJK font has no
+    # Unicode mapping for reliable text extraction by generic PDF readers.
+    import reportlab.platypus as platypus
+
+    pdf_report = {**report, "plan": {**report["plan"], "items": [
+        {
+            "position": 1,
+            "college_id": "test-college",
+            "college_name": "示例院校",
+            "college_city": "示例市",
+            "level_tags": "",
+            "major_name": "示例专业",
+            "group_name": None,
+            "unit_type": "MAJOR_COLLEGE",
+            "unit_id": "zhejiang-2026-test-example",
+            "batch": "ordinary",
+            "tier": "WEN",
+            "probability": 0.6,
+            "probability_interval": [0.5, 0.7],
+            "plan_count": 3,
+            "tuition": None,
+            "source_url": "synthetic://admission-plan/example",
+            "is_synthetic": True,
+            "utility": 0.8,
+            "obey_adjustment": None,
+            "reasons": [],
+            "evidence": [
+                {
+                    "year": 2025,
+                    "min_rank": 12345,
+                    "data_quality": "OK",
+                    "source_url": "synthetic://unit-history/example",
+                    "is_synthetic": True,
+                }
+            ],
+        }
+    ]}}
+    original_table = platypus.Table
+    captured_tables = []
+
+    def capture_table(data, *args, **kwargs):
+        captured_tables.append(data)
+        return original_table(data, *args, **kwargs)
+
+    monkeypatch.setattr(platypus, "Table", capture_table)
+    pdf_bytes = report_service.render_pdf(pdf_report)
+    assert pdf_bytes.startswith(b"%PDF")
+    pdf_cells = [
+        cell if isinstance(cell, str) else getattr(cell, "text", "")
+        for table_rows in captured_tables
+        for table_row in table_rows
+        for cell in table_row
+    ]
+    pdf_text = "\n".join(pdf_cells)
+    assert "未收录（请核对招生章程）" in pdf_text
+    assert "学费/年" in pdf_text and "数据性质" in pdf_text
+    assert len(captured_tables) >= 2  # 志愿表、历史证据；风险表仅在存在风险时生成
+    assert any(
+        "synthetic://unit-history/example" in str(cell if isinstance(cell, str) else getattr(cell, "text", ""))
+        for table_rows in captured_tables
+        for table_row in table_rows
+        for cell in table_row
+    )
+    assert "模拟来源标识" in pdf_text
+
+    # 无本单位历史时，导出必须清楚说明该志愿依赖同类单位类比。
+    pdf_report["plan"]["items"][0]["evidence"] = []
+    captured_tables.clear()
+    no_history_pdf = report_service.render_pdf(pdf_report)
+    assert no_history_pdf.startswith(b"%PDF")
+    no_history_cells = [
+        str(cell if isinstance(cell, str) else getattr(cell, "text", ""))
+        for table_rows in captured_tables
+        for table_row in table_rows
+        for cell in table_row
+    ]
+    assert any("无本单位历史" in cell for cell in no_history_cells)
+
+    no_history_workbook = load_workbook(
+        io.BytesIO(
+            report_service.render_xlsx(
+                {**pdf_report, "plan": {**pdf_report["plan"], "items": [{**pdf_report["plan"]["items"][0], "evidence": []}]}}
+            )
+        )
+    )
+    history_rows = list(no_history_workbook["历史证据"].iter_rows(values_only=True))
+    assert any("无本单位历史" in row for row in history_rows)
+
+
+def test_report_source_note_covers_all_data_compositions() -> None:
+    from app.services.report_service import _source_note
+
+    assert "未包含" in _source_note([])
+    assert "模拟数据" in _source_note([True, True])
+    assert "真实来源数据与模拟数据" in _source_note([True, False])
+    assert "均标记为真实来源" in _source_note([False, False])
 
 
 # ---------------------------------------------------------------------------

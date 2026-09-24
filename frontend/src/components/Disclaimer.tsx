@@ -10,18 +10,16 @@ import { TIER_STYLE } from '../lib/labels'
  */
 export const FALLBACK_DISCLAIMER = '系统输出仅供参考，最终以各省考试院官方文件与招生章程为准。'
 
-export const SIMULATION_NOTICE =
-  '当前数据为**确定性模拟数据**（is_synthetic=1，院校名与专业名为公开信息，分数线/位次/计划数均为模拟值），' +
-  '仅用于验证算法与流程，严禁用于真实志愿填报。'
-
-export function Disclaimer({ text, extra }: { text?: string | null; extra?: boolean }) {
+export function Disclaimer({ text }: { text?: string | null }) {
   return (
     <div className="callout-muted text-xs leading-relaxed">
       <p className="font-medium text-slate-700">免责声明</p>
       <p className="mt-1">{text || FALLBACK_DISCLAIMER}</p>
-      {extra !== false && <p className="mt-1">{SIMULATION_NOTICE}</p>}
       <p className="mt-1">
-        任何录取概率都以**区间**呈现，且不构成录取承诺；系统不连接任何省考试院填报接口，不代填、不代提交。
+        每项数据均应查看对应来源标注；标注为模拟的数据仅用于流程演示，不可用于真实填报。
+      </p>
+      <p className="mt-1">
+        任何录取概率都以区间呈现，且不构成录取承诺；系统不连接任何省考试院填报接口，不代填、不代提交。
       </p>
     </div>
   )

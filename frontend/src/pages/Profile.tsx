@@ -23,6 +23,16 @@ const REGION_OPTIONS = Object.keys(PROVINCE_LABEL)
  */
 const LEVEL_OPTIONS = ['985', '211', '双一流']
 
+function formatProvinceWarning(warning: string, province: string): string {
+  const detail = warning.slice(`${province}:`.length).trim()
+  const readable = detail.includes('全部批次')
+    ? '所选省份的批次规则来源尚未全部完成官方原文核实。请查看每个批次的状态和来源链接。'
+    : detail.includes('选考科目池')
+      ? '选考科目范围尚未完成考试院原文核实，请先查看来源链接。'
+      : '部分批次规则来源仍需核实，请查看所选批次详情。'
+  return `${provinceLabel(province)}：${readable}`
+}
+
 /**
  * 建档向导（AGENTS.md §8.1）。
  *
@@ -78,9 +88,13 @@ export function ProfilePage() {
           </div>
           <StepIndicator steps={STEPS} current={step} maxReachable={maxReachable} onJump={setStep} />
         </div>
-        {meta.data?.warnings?.length ? (
+        {selected && meta.data?.warnings?.some((warning) => warning.startsWith(`${selected.province}:`)) ? (
           <div className="mt-3">
-            <WarningList warnings={meta.data.warnings} />
+            <WarningList
+              warnings={meta.data.warnings
+                .filter((warning) => warning.startsWith(`${selected.province}:`))
+                .map((warning) => formatProvinceWarning(warning, selected.province))}
+            />
           </div>
         ) : null}
       </div>
@@ -379,7 +393,7 @@ function Step2Subjects({
           第 2 步 · 从 {poolSubjects.length} 门中选 {choose} 门选考科目
         </h2>
         <p className="muted mt-1">
-          必须**恰好 {choose} 门**。选满后其余选项自动禁用——新高考的选考科目是硬约束，
+          必须恰好 {choose} 门。选满后其余选项自动禁用——新高考的选考科目是硬约束，
           少一门或多一门都会导致推荐结果不合法。
         </p>
 
@@ -593,7 +607,7 @@ function Step3Score({ provinceMeta, onDone }: { provinceMeta: ProvinceMeta | nul
               placeholder="例如 12340"
             />
             <p className="mt-1 text-xs text-slate-500">
-              填了位次会与系统换算结果做一致性校验；两者不一致时**由你决定以哪个为准**。
+              填了位次会与系统换算结果做一致性校验；两者不一致时由你决定以哪个为准。
             </p>
           </div>
         </div>
@@ -741,10 +755,10 @@ function Step4Preferences({
       <div className="card card-pad">
         <h2 className="card-title">第 4 步 · 偏好与身体条件（可跳过）</h2>
         <p className="muted mt-1">
-          这些是**软偏好**（影响排序）与**硬约束**（体检、语种；影响能否报）。跳过即采用默认值。
+          这些是软偏好（影响排序）与硬约束（体检、语种；影响能否报）。跳过即采用默认值。
         </p>
         <p className="mt-1 text-xs text-slate-500">
-          ★ 推荐列表与志愿表都**直接按这里的意向生成**，不需要在推荐页再填一次筛选。
+          推荐列表与志愿表都会直接使用这里的意向，不需要在推荐页重复筛选。
         </p>
 
         {missing.length > 0 && (
@@ -789,7 +803,7 @@ function Step4Preferences({
               })}
             </div>
             <p className="mt-2 text-xs text-slate-500">
-              意向地区默认按**软偏好**打分；勾选下方"当作硬约束"后才会直接过滤掉外省院校。
+              意向地区默认按软偏好打分；勾选下方"当作硬约束"后才会直接过滤掉外省院校。
             </p>
           </section>
 
@@ -798,7 +812,7 @@ function Step4Preferences({
               意向专业（门类 → 专业类，可多选；空 = 不限）
             </h3>
             <p className="mt-1 text-xs text-slate-500">
-              分级与**专业分类规则库**一致（教育部目录 12 门类 / 93 专业类，见
+              分级与专业分类规则库一致（教育部目录 12 门类 / 93 专业类，见
               <code className="mx-1">docs/MAJOR_TAXONOMY.md</code>）。点门类可整体选中，也可展开只挑专业类。
               选中后按匹配层级打分：专业类 0.80 / 门类 0.55；第三级「具体专业」在推荐页可再筛。
             </p>
@@ -948,7 +962,7 @@ function Step4Preferences({
               })}
             </div>
             <p className="text-xs text-slate-500">
-              没有 985/211/双一流 标签的院校**不等于层次低**（省重点、行业强校很常见），
+              没有 985/211/双一流标签，不代表院校层次低（省重点、行业强校很常见），
               详见对话页的"XX大学怎么样"。
             </p>
             <label className="flex items-start gap-2 rounded-lg bg-slate-50 p-2 text-sm">
@@ -964,7 +978,7 @@ function Step4Preferences({
                 把以上意向<strong>当作硬约束</strong>
                 <span className="block text-xs text-slate-500">
                   不勾选（默认）= 只影响排序，仍会推荐意向外的院校；
-                  勾选 = 直接过滤掉不符合意向的院校。**推荐页与志愿表都按这里生成，不需要再填一次。**
+                  勾选 = 直接过滤掉不符合意向的院校。推荐页与志愿表都会按这里生成，不需要重复填写。
                 </span>
               </span>
             </label>
@@ -1071,11 +1085,12 @@ function Step4Preferences({
         </div>
 
         <section className="mt-5">
-          <h3 className="text-sm font-semibold text-slate-800">偏好权重（影响志愿排序，不影响概率）</h3>
-          <p className="mt-1 text-xs text-slate-500">
-            所有权重归一化后参与效用打分；默认等权。概率只由算法决定，权重不会让"没戏"的志愿变得有戏。
-          </p>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <details>
+            <summary className="cursor-pointer text-sm font-semibold text-slate-800">高级设置：偏好权重（影响排序，不影响概率）</summary>
+            <p className="mt-2 text-xs text-slate-500">
+              权重归一化后参与排序；默认等权。调整权重不会改变录取概率。
+            </p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {weights.map(({ key, label }) => {
               const value = Number(preferences[key] ?? 0)
               return (
@@ -1099,7 +1114,8 @@ function Step4Preferences({
                 </div>
               )
             })}
-          </div>
+            </div>
+          </details>
         </section>
       </div>
 

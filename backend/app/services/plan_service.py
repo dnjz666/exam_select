@@ -202,14 +202,7 @@ def _plan_evidence(plan: VolunteerPlan, history: dict) -> list[dict]:
     for item in plan.items:
         records = history.get(unit_key_of(item.unit.unit_id), ())
         if not records:
-            evidence.append(
-                {
-                    "what": "unit_history",
-                    "unit_id": item.unit.unit_id,
-                    "source_url": "",
-                    "note": "无本单位历史（新增专业），概率来自 Step 0 同类单位类比",
-                }
-            )
+            # 没有本单位记录时不伪造一行空历史；报告 UI 会清楚说明缺少本单位历史。
             continue
         for record in sorted(records, key=lambda r: -r.year)[:3]:
             evidence.append(
@@ -220,6 +213,7 @@ def _plan_evidence(plan: VolunteerPlan, history: dict) -> list[dict]:
                     "min_rank": record.min_rank,
                     "data_quality": record.data_quality.value,
                     "source_url": record.source_url,
+                    "is_synthetic": record.is_synthetic,
                 }
             )
     return evidence

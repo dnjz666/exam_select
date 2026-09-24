@@ -47,8 +47,8 @@ from app.etl.synthetic import CURRENT_YEAR
 from app.services import student_service
 
 DISCLAIMER = (
-    "本系统输出仅供参考，最终以各省考试院官方文件与招生章程为准；"
-    "当前数据为模拟数据，严禁用于真实填报。"
+    "本系统输出仅供决策参考，最终以各省考试院官方文件与招生章程为准；"
+    "请查看每项数据的来源标注，标记为模拟的数据仅用于流程演示，不可用于真实填报。"
 )
 
 #: 喂给 LLM 的历史窗口（完整历史仍可从库里取）

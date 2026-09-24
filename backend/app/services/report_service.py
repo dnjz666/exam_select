@@ -7,6 +7,7 @@ xlsx 用 openpyxl；PDF 用 reportlab 的内置 CJK 字体 ``STSong-Light``（�
 from __future__ import annotations
 
 import io
+from html import escape
 from collections.abc import Sequence
 
 from sqlalchemy.orm import Session
@@ -17,10 +18,44 @@ from app.services import plan_service
 
 DISCLAIMER = (
     "本报告由志愿填报智能体自动生成，仅供决策参考。最终请以各省教育考试院官方文件、"
-    "招生计划与高校招生章程为准。当前数据为模拟数据（is_synthetic=1），严禁用于真实填报。"
+    "招生计划与高校招生章程为准。请查看每项数据的来源标注；模拟数据仅用于流程演示，不可用于真实填报。"
 )
 
-TAG_NOTE = "synthetic:// 前缀表示模拟数据；接入真实数据后（M6）此处将显示考试院官方来源链接。"
+TAG_NOTE = "每项计划与历史记录均标注数据性质和来源；涉及报考时请以考试院官方文件和招生章程为准。"
+
+DATA_QUALITY_LABELS = {
+    "OK": "记录完整",
+    "DERIVED": "分数反查",
+    "MISSING_RANK": "缺少位次",
+    "COLLECTED": "征集志愿",
+    "SUSPECT": "数据存疑",
+}
+VERIFIED_STATUS_LABELS = {
+    "PRIMARY": "考试院原文已核实",
+    "PRIMARY_GOV": "政府门户转述已核实",
+    "SECONDARY": "转载来源待核实",
+    "UNVERIFIED": "尚未核实",
+}
+RISK_LEVEL_LABELS = {"HIGH": "高风险", "MEDIUM": "中风险", "LOW": "提示"}
+UNIT_TYPE_LABELS = {"MAJOR_COLLEGE": "专业+院校", "MAJOR_GROUP": "院校专业组"}
+
+
+def _quality_label(value: str | None) -> str:
+    return DATA_QUALITY_LABELS.get(value or "", "未标注")
+
+
+def _label(mapping: dict[str, str], value: str | None) -> str:
+    return mapping.get(value or "", "未标注")
+
+
+def _source_note(source_flags: list[bool]) -> str:
+    if not source_flags:
+        return "当前报告未包含志愿或历史数据；请先生成志愿表。"
+    if any(source_flags) and any(not flag for flag in source_flags):
+        return "当前报告同时包含真实来源数据与模拟数据；各条数据性质请见对应记录。"
+    if any(source_flags):
+        return "当前报告包含模拟数据；请勿用于真实填报。"
+    return "当前计划与历史记录均标记为真实来源；仍须核对考试院官方文件和招生章程。"
 
 
 def build_report(session: Session, bundle: plan_service.PlanBundle, student: StudentProfile) -> dict:
@@ -44,6 +79,7 @@ def build_report(session: Session, bundle: plan_service.PlanBundle, student: Stu
             {
                 "position": item.position,
                 "college_id": unit.college_id,
+                "unit_id": unit.unit_id,
                 "college_name": "",  # 由 _with_college_names 填充（院校名/城市/层次均来自 colleges 表）
                 "major_name": unit.major_name,
                 "group_name": unit.group_name,
@@ -51,6 +87,8 @@ def build_report(session: Session, bundle: plan_service.PlanBundle, student: Stu
                 "batch": unit.batch,
                 "plan_count": unit.plan_count,
                 "tuition": unit.tuition,
+                "source_url": unit.source_url,
+                "is_synthetic": unit.is_synthetic,
                 "tier": item.tier.value,
                 "probability": item.probability,
                 "probability_interval": interval,
@@ -62,8 +100,12 @@ def build_report(session: Session, bundle: plan_service.PlanBundle, student: Stu
         )
 
     sources = sorted(
-        {entry["source_url"] for entry in bundle.evidence if entry.get("source_url")} | {plan.rule.source_url}
+        {entry["source_url"] for entry in bundle.evidence if entry.get("source_url")}
+        | {item["source_url"] for item in items if item.get("source_url")}
+        | {plan.rule.source_url}
     )
+    source_flags = [item["is_synthetic"] for item in items]
+    source_flags.extend(bool(entry.get("is_synthetic", True)) for item in items for entry in item["evidence"])
     report = {
         "generated_at": repo.now_iso(),
         "student": {
@@ -97,7 +139,12 @@ def build_report(session: Session, bundle: plan_service.PlanBundle, student: Stu
         "risks": [risk.model_dump(mode="json") for risk in bundle.risks],
         "warnings": list(bundle.warnings),
         "sources": sources,
-        "source_note": TAG_NOTE,
+        "source_note": _source_note(source_flags),
+        "data_sources": {
+            "contains_synthetic": any(source_flags),
+            "contains_real": any(not flag for flag in source_flags),
+            "scope": "志愿表当前计划与所用历史证据",
+        },
         "disclaimer": DISCLAIMER,
     }
     return report
@@ -113,6 +160,9 @@ def _with_college_names(session: Session, report: dict) -> dict:
         item["level_tags"] = "、".join(college.level_tags) if college else ""
         item["college_source_url"] = college.source_url if college else ""
         item["tuition_note"] = "民办/中外合作，请在卡片核验学费" if college and not college.is_public else ""
+        if college and college.source_url:
+            report["sources"].append(college.source_url)
+    report["sources"] = sorted(set(report["sources"]))
     _ = majors
     return report
 
@@ -124,7 +174,7 @@ def render_xlsx(report: dict) -> bytes:
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "志愿表"
-    header = ["顺序", "院校", "城市", "层次", "专业", "专业组", "投档单位", "计划数", "学费(元/年)",
+    header = ["顺序", "院校", "城市", "层次", "专业", "专业组", "投档单位", "计划数", "学费(元/年)", "计划来源", "数据性质",
               "分层", "概率", "概率区间", "服从调剂"]
     sheet.append(header)
     for item in report["plan"]["items"]:
@@ -137,9 +187,11 @@ def render_xlsx(report: dict) -> bytes:
                 item.get("level_tags", ""),
                 item["major_name"],
                 item.get("group_name") or "—",
-                item["unit_type"],
+                _label(UNIT_TYPE_LABELS, item["unit_type"]),
                 item["plan_count"],
                 item["tuition"],
+                item.get("source_url", ""),
+                "模拟数据" if item.get("is_synthetic", True) else "真实来源",
                 item["tier"],
                 item["probability"],
                 f"{interval[0]:.0%}–{interval[1]:.0%}" if interval else "—",
@@ -148,10 +200,13 @@ def render_xlsx(report: dict) -> bytes:
         )
 
     evidence_sheet = workbook.create_sheet("历史证据")
-    evidence_sheet.append(["志愿顺序", "投档单位", "年份", "最低位次", "数据质量", "来源", "备注"])
-    items_by_unit = {item["college_id"]: item for item in report["plan"]["items"]}
-    _ = items_by_unit
+    evidence_sheet.append(["志愿顺序", "投档单位", "年份", "最低位次", "数据质量", "数据性质", "来源", "备注"])
     for item in report["plan"]["items"]:
+        if not item["evidence"]:
+            evidence_sheet.append(
+                [item["position"], item["unit_id"], "—", "—", "无本单位历史", "—", "—",
+                 "无本单位历史，概率参考同类单位；请在推荐依据中核对类比证据"]
+            )
         for entry in item["evidence"]:
             evidence_sheet.append(
                 [
@@ -159,27 +214,28 @@ def render_xlsx(report: dict) -> bytes:
                     entry["unit_id"],
                     entry.get("year", ""),
                     entry.get("min_rank", ""),
-                    entry.get("data_quality", ""),
+                    _quality_label(entry.get("data_quality")),
+                    "模拟数据" if entry.get("is_synthetic", True) else "真实来源",
                     entry.get("source_url", ""),
                     entry.get("note", ""),
                 ]
             )
 
     risk_sheet = workbook.create_sheet("风险提示")
-    risk_sheet.append(["风险码", "等级", "投档单位", "说明", "建议"])
+    risk_sheet.append(["等级", "投档单位", "说明", "建议"])
     for risk in report["risks"]:
         risk_sheet.append(
-            [risk["code"], risk["level"], risk.get("unit_id") or "—", risk["message"], risk["suggestion"]]
+            [_label(RISK_LEVEL_LABELS, risk["level"]), risk.get("unit_id") or "—", risk["message"], risk["suggestion"]]
         )
 
     note_sheet = workbook.create_sheet("说明与来源")
     note_sheet.append(["生成时间", report["generated_at"]])
     note_sheet.append(["省份/批次", f"{report['rule']['province']} / {report['rule']['batch_name']}"])
-    note_sheet.append(["规则核实状态", report["rule"]["verified_status"]])
+    note_sheet.append(["规则核实状态", _label(VERIFIED_STATUS_LABELS, report["rule"]["verified_status"])])
     note_sheet.append(["考生位次", report["student"]["rank"]])
     note_sheet.append([])
     note_sheet.append(["数据来源清单"])
-    note_sheet.append([TAG_NOTE])
+    note_sheet.append([report["source_note"] + " " + TAG_NOTE])
     for url in report["sources"]:
         note_sheet.append([url])
     note_sheet.append([])
@@ -229,23 +285,30 @@ def render_pdf(report: dict) -> bytes:
     story.append(
         Paragraph(
             f"批次：{rule['batch_name']}（{rule['batch_code']}）　平行志愿数：{rule['max_volunteers']}　"
-            f"规则核实状态：{rule['verified_status']}　来源：{rule['source_url']}",
+            f"规则核实状态：{_label(VERIFIED_STATUS_LABELS, rule['verified_status'])}　来源：{rule['source_url']}",
             small_style,
         )
     )
     if rule["verified_status"] in {"SECONDARY", "UNVERIFIED"}:
         story.append(
             Paragraph(
-                "<b>⚠️ 规则待核实</b>：该省规则尚未升级为 PRIMARY（考试院原文），"
+                "<b>⚠️ 规则待核实</b>：该省规则尚未达到考试院官方原文核实等级，"
                 "本报告不得用于真实填报。",
                 body_style,
             )
         )
     story.append(Spacer(1, 8))
 
-    rows = [["#", "院校", "专业", "分层", "概率区间", "计划", "服从调剂"]]
+    rows = [["#", "院校", "专业", "分层", "概率区间", "计划", "学费/年", "数据性质", "计划来源", "服从调剂"]]
     for item in report["plan"]["items"]:
         interval = item.get("probability_interval")
+        plan_source = item.get("source_url") or ""
+        if plan_source.startswith(("http://", "https://")):
+            plan_source_cell = Paragraph(f'<link href="{escape(plan_source, quote=True)}">查看来源</link>', small_style)
+        elif plan_source:
+            plan_source_cell = Paragraph("模拟来源标识", small_style)
+        else:
+            plan_source_cell = "未提供来源"
         rows.append(
             [
                 str(item["position"]),
@@ -254,10 +317,17 @@ def render_pdf(report: dict) -> bytes:
                 item["tier"],
                 f"{interval[0]:.0%}–{interval[1]:.0%}" if interval else "—",
                 str(item["plan_count"]),
+                (
+                    f"{item['tuition']:,} 元/年"
+                    if isinstance(item.get("tuition"), int) and item["tuition"] > 0
+                    else "未收录（请核对招生章程）"
+                ),
+                "模拟" if item.get("is_synthetic", True) else "真实",
+                plan_source_cell,
                 "—" if item["obey_adjustment"] is None else ("是" if item["obey_adjustment"] else "否"),
             ]
         )
-    table = Table(rows, colWidths=[10 * mm, 42 * mm, 42 * mm, 16 * mm, 26 * mm, 14 * mm, 18 * mm])
+    table = Table(rows, colWidths=[8 * mm, 23 * mm, 23 * mm, 12 * mm, 20 * mm, 9 * mm, 27 * mm, 18 * mm, 18 * mm, 14 * mm])
     table.setStyle(
         TableStyle(
             [
@@ -271,12 +341,61 @@ def render_pdf(report: dict) -> bytes:
     )
     story += [table, Spacer(1, 10)]
 
+    history_rows = [["#", "院校 / 专业", "依据类型", "年份", "最低位次", "数据质量", "数据性质", "来源"]]
+    for item in report["plan"]["items"]:
+        unit_label = f"{item['college_name']} · {item['major_name']}"
+        if not item.get("evidence"):
+            history_rows.append(
+                [str(item["position"]), Paragraph(escape(unit_label), small_style), "无本单位历史",
+                 "—", "—", "—", "—", "概率参考同类单位；请在推荐依据中核对类比证据"]
+            )
+        for entry in item.get("evidence", []):
+            source_url = entry.get("source_url") or ""
+            if source_url.startswith(("http://", "https://")):
+                source_cell = Paragraph(f'<link href="{escape(source_url, quote=True)}">查看来源</link>', small_style)
+            elif source_url:
+                # synthetic:// 等内部来源标识也要明确显示，不能伪装成缺来源。
+                source_cell = Paragraph(escape(source_url), small_style)
+            else:
+                source_cell = "未提供来源"
+            history_rows.append(
+                [
+                    str(item["position"]),
+                    Paragraph(escape(unit_label), small_style),
+                    "同类单位类比" if entry.get("note") else "本单位历史",
+                    str(entry.get("year") or "—"),
+                    f"{entry['min_rank']:,}" if isinstance(entry.get("min_rank"), int) else "—",
+                    _quality_label(entry.get("data_quality")),
+                    "模拟数据" if entry.get("is_synthetic", True) else "真实来源",
+                    source_cell,
+                ]
+            )
+    if len(history_rows) > 1:
+        story.append(Paragraph("历史证据", body_style))
+        history_table = Table(
+            history_rows,
+            colWidths=[8 * mm, 34 * mm, 24 * mm, 12 * mm, 18 * mm, 20 * mm, 20 * mm, 30 * mm],
+            repeatRows=1,
+        )
+        history_table.setStyle(
+            TableStyle(
+                [
+                    ("FONTNAME", (0, 0), (-1, -1), "STSong-Light"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 7.5),
+                    ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#999999")),
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#eeeeee")),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ]
+            )
+        )
+        story += [history_table, Spacer(1, 10)]
+
     if report["risks"]:
         story.append(Paragraph("风险提示", body_style))
-        risk_rows = [["等级", "风险码", "说明", "建议"]]
+        risk_rows = [["等级", "说明", "建议"]]
         for risk in report["risks"]:
-            risk_rows.append([risk["level"], risk["code"], risk["message"], risk["suggestion"]])
-        risk_table = Table(risk_rows, colWidths=[14 * mm, 30 * mm, 62 * mm, 62 * mm])
+            risk_rows.append([_label(RISK_LEVEL_LABELS, risk["level"]), risk["message"], risk["suggestion"]])
+        risk_table = Table(risk_rows, colWidths=[18 * mm, 80 * mm, 80 * mm])
         risk_table.setStyle(
             TableStyle(
                 [

@@ -651,6 +651,7 @@ def _analog_candidates(
                 data_quality=latest.data_quality,
                 is_collected=latest.is_collected,
                 source_url=latest.source_url,
+                is_synthetic=latest.is_synthetic,
                 note=f"类比单位 {analog.unit.unit_id}",
             )
         )
@@ -795,6 +796,7 @@ def _evidence(records: Sequence[AdmissionRecord]) -> list[HistoryEvidence]:
             data_quality=r.data_quality,
             is_collected=r.is_collected,
             source_url=r.source_url,
+            is_synthetic=r.is_synthetic,
         )
         for r in records
     ]

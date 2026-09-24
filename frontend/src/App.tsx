@@ -71,14 +71,13 @@ export function Shell() {
         <Outlet />
       </main>
 
-      <footer className="no-print mt-8 border-t border-slate-200 bg-white py-6">
-        <div className="app-shell space-y-3">
-          <Disclaimer />
-          <p className="text-xs text-slate-400">
-            当前路由 {location.pathname} · 数据层为确定性模拟数据（M1–M5 阶段）· 不连接任何省考试院填报接口
-          </p>
-        </div>
-      </footer>
+      {location.pathname !== '/report' && (
+        <footer className="no-print mt-8 border-t border-slate-200 bg-white py-6">
+          <div className="app-shell space-y-3">
+            <Disclaimer />
+          </div>
+        </footer>
+      )}
     </div>
   )
 }

@@ -1181,7 +1181,14 @@
             "title": "Plan Count"
           },
           "tuition": {
-            "type": "integer",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Tuition"
           },
           "duration": {
@@ -1215,6 +1222,11 @@
             "type": "string",
             "title": "Source Url",
             "default": ""
+          },
+          "is_synthetic": {
+            "type": "boolean",
+            "title": "Is Synthetic",
+            "default": true
           },
           "gender_limit": {
             "anyOf": [
@@ -1282,8 +1294,7 @@
           "year",
           "batch",
           "college_id",
-          "plan_count",
-          "tuition"
+          "plan_count"
         ],
         "title": "AdmissionUnit",
         "description": "统一\"投档单位\"抽象（AGENTS.md §5.1）。\n\n浙江/山东（专业+院校）与上海/北京/天津/海南（院校专业组）的差异\n全部由 ``ProvinceRule``/``BatchRule`` 吸收，业务代码不得 if-else 区分。"
@@ -2267,6 +2278,11 @@
             "type": "string",
             "title": "Source Url",
             "default": ""
+          },
+          "is_synthetic": {
+            "type": "boolean",
+            "title": "Is Synthetic",
+            "default": true
           },
           "note": {
             "anyOf": [

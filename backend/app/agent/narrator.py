@@ -80,8 +80,8 @@ def _interval(interval: Any) -> str:
 
 
 def _money(value: Any) -> str:
-    if not isinstance(value, (int, float)):
-        return "—"
+    if not isinstance(value, (int, float)) or value <= 0:
+        return "未收录（请核对招生章程）"
     return f"{round(value):,} 元/年"
 
 

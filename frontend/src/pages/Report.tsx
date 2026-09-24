@@ -37,6 +37,15 @@ export function ReportPage() {
   const bundle = stored ?? loaded.data
   const payload = bundle?.data ?? null
   const envelopeEvidence = bundle?.evidence ?? []
+  const loadedPlan = payload?.plan
+  const reportSourceFlags = [
+    ...(loadedPlan?.items ?? []).map((item) => item.unit.is_synthetic),
+    ...envelopeEvidence
+      .filter((entry) => (entry as { what?: string }).what === 'unit_history')
+      .map((entry) => Boolean((entry as { is_synthetic?: boolean }).is_synthetic ?? true)),
+  ]
+  const reportHasSynthetic = reportSourceFlags.some(Boolean)
+  const reportHasReal = reportSourceFlags.some((flag) => !flag)
 
   const evidenceByUnit = useMemo(() => {
     const map = new Map<string, HistoryEvidence[]>()
@@ -54,11 +63,13 @@ export function ReportPage() {
   const sources = useMemo(() => {
     const seen = new Map<string, string>()
     const add = (url: string | null | undefined, what: string) => {
-      if (!url || !/^https?:\/\//i.test(url)) return
+      if (!url) return
       if (!seen.has(url)) seen.set(url, what)
     }
-    const plan = payload?.plan
-    add(plan?.rule.source_url, '批次投档规则')
+    add(loadedPlan?.rule.source_url, '批次投档规则')
+    for (const item of loadedPlan?.items ?? []) {
+      add(item.unit.source_url, `招生计划（${item.unit.unit_id}）`)
+    }
     for (const entry of envelopeEvidence) {
       const record = entry as { what?: string; source_url?: string; unit_id?: string; year?: number }
       add(record.source_url, record.unit_id ? `招生历史（${record.unit_id}）` : (record.what ?? '数据来源'))
@@ -67,7 +78,7 @@ export function ReportPage() {
       add(college.source_url, `院校信息（${college.name}）`)
     }
     return [...seen.entries()].map(([url, what]) => ({ url, what }))
-  }, [payload, envelopeEvidence])
+  }, [payload, envelopeEvidence, loadedPlan])
 
   if (loaded.loading && !payload) return <Loading label="正在装配报告…" rows={3} />
   if (loaded.error && !payload) {
@@ -118,8 +129,19 @@ export function ReportPage() {
         {/* ------------------------------ 表头 ------------------------------ */}
         <header className="card card-pad">
           <h1 className="text-lg font-semibold text-slate-900">
-            {provinceLabel(plan.province)}普通高校招生志愿表（模拟数据）
+            {provinceLabel(plan.province)}普通高校招生志愿表
           </h1>
+          <p className="mt-1 text-sm text-slate-600">
+            本报告数据来源：
+            {reportSourceFlags.length === 0
+              ? '暂无计划数据'
+              : reportHasSynthetic && reportHasReal
+                ? '真实来源与模拟数据混合'
+                : reportHasSynthetic
+                  ? '含模拟数据'
+                  : '均标记为真实来源'}。
+            每条计划与历史证据均附数据性质及来源。
+          </p>
           <p className="muted mt-1">
             生成时间 {formatDateTime(new Date().toISOString())} · 志愿表编号{' '}
             <span className="font-mono">{plan.id}</span> · {plan.rule.batch_name}
@@ -156,6 +178,8 @@ export function ReportPage() {
                   <th scope="col">选考要求</th>
                   <th scope="col">计划</th>
                   <th scope="col">学费</th>
+                  <th scope="col">招生计划来源</th>
+                  <th scope="col">数据性质</th>
                   <th scope="col">概率区间</th>
                   {plan.rule.has_major_adjustment ? <th scope="col">服从调剂</th> : null}
                 </tr>
@@ -184,6 +208,13 @@ export function ReportPage() {
                       <td className="text-xs">{describeSubjectRequirement(item.unit.subject_requirement)}</td>
                       <td className="num">{formatPlanCount(item.unit.plan_count)}</td>
                       <td className="num">{formatTuition(item.unit.tuition)}</td>
+                      <td>
+                        <SourceLink
+                          url={item.unit.source_url}
+                          label={item.unit.source_url?.startsWith('http') ? '查看来源' : item.unit.source_url || '无来源链接'}
+                        />
+                      </td>
+                      <td>{item.unit.is_synthetic ? '模拟数据' : '真实来源'}</td>
                       <td className="num">{formatInterval(item.probability_interval ?? null)}</td>
                       {plan.rule.has_major_adjustment ? (
                         <td>{item.obey_adjustment === true ? '服从' : item.obey_adjustment === false ? '不服从' : '未选'}</td>
@@ -203,6 +234,8 @@ export function ReportPage() {
             {plan.items.map((item) => {
               const college = payload.colleges?.[item.unit.college_id]
               const records = evidenceByUnit.get(item.unit.unit_id) ?? []
+              const ownRecords = records.filter((record) => !record.note)
+              const analogRecords = records.filter((record) => Boolean(record.note))
               return (
                 <li key={item.unit.unit_id} className="print-avoid-break rounded-lg border border-slate-200 p-3">
                   <p className="font-medium">
@@ -215,22 +248,24 @@ export function ReportPage() {
                       ))}
                     </ul>
                   )}
-                  {records.length > 0 ? (
+                  {ownRecords.length > 0 ? (
                     <table className="data-table mt-2">
                       <thead>
                         <tr>
                           <th scope="col">年份</th>
                           <th scope="col">最低位次</th>
                           <th scope="col">数据质量</th>
+                          <th scope="col">数据性质</th>
                           <th scope="col">来源</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {records.map((record, index) => (
+                        {ownRecords.map((record, index) => (
                           <tr key={`${record.year}-${index}`}>
                             <td className="num">{record.year}</td>
                             <td className="num">{formatRank(record.min_rank)}</td>
-                            <td className="text-xs">{record.data_quality}</td>
+                            <td className="text-xs">{DATA_QUALITY_LABEL[record.data_quality] ?? '未标注'}</td>
+                            <td>{record.is_synthetic !== false ? '模拟数据' : '真实来源'}</td>
                             <td>
                               <SourceLink url={record.source_url} label="来源" />
                             </td>
@@ -238,11 +273,26 @@ export function ReportPage() {
                         ))}
                       </tbody>
                     </table>
-                  ) : (
+                  ) : null}
+                  {analogRecords.length > 0 && (
+                    <div className="callout-info mt-2">
+                      <p className="font-medium">本单位无可用历史，以下为同类单位类比证据</p>
+                      <ul className="mt-1 space-y-1 text-xs">
+                        {analogRecords.map((record, index) => (
+                          <li key={`analog-${record.year}-${index}`}>
+                            {record.note}：{record.year} 年最低位次 {formatRank(record.min_rank)} ·{' '}
+                            {record.is_synthetic !== false ? '模拟数据' : '真实来源'} ·{' '}
+                            <SourceLink url={record.source_url} label="查看来源" />
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {records.length === 0 ? (
                     <p className="mt-1 text-xs text-amber-700">
                       无本单位历史（新增专业）：概率来自同类单位类比，置信度低，不得当作保底。
                     </p>
-                  )}
+                  ) : null}
                 </li>
               )
             })}
@@ -299,7 +349,6 @@ export function ReportPage() {
           </p>
         </section>
 
-        <Disclaimer text={disclaimerText} />
       </article>
     </div>
   )
@@ -312,4 +361,12 @@ function Field({ label, value, mono }: { label: string; value: string; mono?: bo
       <p className={mono ? 'num font-medium' : 'font-medium'}>{value}</p>
     </div>
   )
+}
+
+const DATA_QUALITY_LABEL: Record<string, string> = {
+  OK: '记录完整',
+  DERIVED: '分数反查',
+  MISSING_RANK: '缺少位次',
+  COLLECTED: '征集志愿',
+  SUSPECT: '数据存疑',
 }

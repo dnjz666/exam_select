@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { api, streamChat, ApiError, type ChatMessage } from '../api/client'
-import { Disclaimer } from '../components/Disclaimer'
 import { ErrorNote } from '../components/StateBlocks'
 import { formatDateTime } from '../lib/format'
 import { missingFieldLabel } from '../lib/labels'
@@ -176,16 +175,16 @@ export function ChatPage() {
         <p className="font-medium">这个助手能做什么（如实说明）</p>
         <ul className="mt-1 list-inside list-disc text-sm">
           <li>
-            **能查数据**：把分数换算成位次、查各省投档规则、查某所院校的历年投档、按你的档案推荐、
-            扫志愿表风险——每条回复下方都能展开看它**查了哪个工具**。
+            <strong>能查数据</strong>：把分数换算成位次、查各省投档规则、查某所院校的历年投档、按你的档案推荐，
+            扫志愿表风险；每条回复下方都能展开看它查了哪个工具。
           </li>
           <li>
-            **数字只来自工具**：助手自己算或自己编的部分会被**幻觉护栏**拦掉。
+            <strong>数字只来自工具</strong>：助手自己算或自己编的部分会被幻觉护栏拦掉。
             如果某条回复标了「已被护栏拦截」，那不是故障，而是防护生效——它想说一个没有出处的数字，
             被换成了"我需要先查数据"。
           </li>
           <li>
-            **可以对话建档**：直接说你所在省份 + 3 门选考 + 总分（知道位次就一并说），
+            <strong>可以对话建档</strong>：直接说你所在省份 + 3 门选考 + 总分（知道位次就一并说），
             我会写进档案草稿；缺什么我就问什么，不会替你假设。
           </li>
           <li>会话历史已落库，重启后端不会丢。</li>
@@ -323,7 +322,6 @@ export function ChatPage() {
         </form>
       </div>
 
-      <Disclaimer />
     </div>
   )
 }

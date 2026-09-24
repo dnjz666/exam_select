@@ -199,9 +199,9 @@ def tiers_meta(params: ModelParams | None = None) -> dict:
     params = params or ModelParams()
     meanings = {
         "CHONG": "有机会但不稳",
-        "WEN": "大概率能上",
-        "BAO": "很稳",
-        "DIAN": "绝对兜底",
+        "WEN": "当前概率区间落在稳档范围，结果仍有不确定性",
+        "BAO": "通过保档安全闸门，仍不构成录取承诺",
+        "DIAN": "通过垫档安全闸门，仍需核对专业与规则",
         "TOO_RISKY": "基本无望，默认不推荐",
     }
     tiers = [

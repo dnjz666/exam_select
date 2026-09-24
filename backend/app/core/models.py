@@ -255,7 +255,7 @@ class AdmissionUnit(BaseModel):
     major_name: str = ""
     subject_requirement: SubjectRequirement = Field(default_factory=SubjectRequirement)
     plan_count: int = Field(gt=0)  # 招生计划数，必须 > 0
-    tuition: int  # 学费（元/年）；推荐卡片必须明示（名师铁律 10）
+    tuition: int | None = None  # 未知学费保持未知；不得显示为 0
     duration: int = 4
     campus: str | None = None
     remarks: str | None = None
@@ -263,6 +263,7 @@ class AdmissionUnit(BaseModel):
     #: 放到领域模型上而不是让调用方另找：§9.1 要求**工具的每个数字都带来源**，
     #: 而"计划数"就是单位自身的属性——来源必须随数据一起流动。
     source_url: str = ""
+    is_synthetic: bool = True
 
     # ---- 硬约束声明（AGENTS.md §6.4；默认 None/False = 无限制，绝不臆造限制）
     gender_limit: str | None = None  # "男" | "女"；None = 不限
@@ -299,6 +300,7 @@ class AdmissionRecord(BaseModel):
     data_quality: DataQuality = DataQuality.OK
     total_candidates: int | None = None
     source_url: str = ""
+    is_synthetic: bool = True
 
 
 # ====================================================================
@@ -316,6 +318,7 @@ class HistoryEvidence(BaseModel):
     data_quality: DataQuality = DataQuality.OK
     is_collected: bool = False
     source_url: str = ""  # 无来源的证据不得出现在响应中
+    is_synthetic: bool = True
     #: 证据性质标注：None = 本单位历史；"类比单位 xxx" = Step 0 类比池证据（新增专业无历史）
     note: str | None = None
 

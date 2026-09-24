@@ -153,8 +153,8 @@ async function main() {
     '每个志愿的院校都能查到名字',
   )
   check(
-    plan.items.every((item) => Boolean(item.unit.tuition)),
-    '每个志愿都带学费（名师铁律 10：必须让家长看见）',
+    plan.items.every((item) => item.unit.tuition == null || item.unit.tuition > 0),
+    '学费为正数或明确缺失（缺失时 UI 必须显示待核验提示，不得显示 0 元）',
   )
   const distribution = plan.tier_distribution ?? {}
   const last = plan.items[plan.items.length - 1]

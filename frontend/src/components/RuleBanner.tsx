@@ -32,7 +32,7 @@ export function RuleBanner({ rule, warnings = [], compact = false }: RuleBannerP
           </p>
           <p className="mt-2 text-sm text-rose-900">
             本省全部批次的规则来源未达官方原文等级（当前为「{verified.label}」）。
-            系统仍可用于了解投档模式与算法逻辑，但**请勿据此填报真实志愿**；
+            系统仍可用于了解投档模式与算法逻辑，但请勿据此填报真实志愿；
             最终以省考试院官方文件与招生章程为准。
           </p>
         </div>

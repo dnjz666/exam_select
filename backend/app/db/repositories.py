@@ -209,11 +209,12 @@ def to_unit(row: db.AdmissionUnitRow, *, year: int, plan_count: int) -> Admissio
         major_name=row.major_name,
         subject_requirement=SubjectRequirement(**json.loads(row.subject_requirement)),
         plan_count=plan_count,
-        tuition=row.tuition or 0,
+        tuition=row.tuition if row.tuition is not None and row.tuition > 0 else None,
         duration=row.duration or 4,
         campus=row.campus,
         remarks=row.remarks,
         source_url=row.source_url or "",
+        is_synthetic=bool(row.is_synthetic),
     )
 
 
@@ -237,6 +238,7 @@ def to_record(row: db.AdmissionHistory) -> AdmissionRecord:
         data_quality=DataQuality(row.data_quality),
         total_candidates=row.total_candidates,
         source_url=row.source_url,
+        is_synthetic=bool(row.is_synthetic),
     )
 
 

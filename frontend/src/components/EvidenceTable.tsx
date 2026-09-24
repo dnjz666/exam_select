@@ -4,7 +4,7 @@ import { SourceLink } from './StateBlocks'
 
 /** 数据质量标注（DOMAIN_RULES §2.2）。 */
 const QUALITY_LABEL: Record<string, { text: string; className: string }> = {
-  OK: { text: '官方公布', className: 'text-slate-500' },
+  OK: { text: '记录完整', className: 'text-slate-500' },
   DERIVED: { text: '由分数反查（降权 0.9）', className: 'text-amber-700' },
   COLLECTED: { text: '征集志愿（线偏低）', className: 'text-amber-700' },
   MISSING_RANK: { text: '缺位次', className: 'text-rose-700' },
@@ -50,6 +50,7 @@ export function EvidenceTable({ evidence, studentRank }: EvidenceTableProps) {
                 {studentRank ? <th scope="col">与你的位次</th> : null}
                 <th scope="col">计划数</th>
                 <th scope="col">数据质量</th>
+                <th scope="col">数据性质</th>
                 <th scope="col">来源</th>
               </tr>
             </thead>
@@ -73,6 +74,9 @@ export function EvidenceTable({ evidence, studentRank }: EvidenceTableProps) {
                       {quality.text}
                       {entry.is_collected ? '（征集）' : ''}
                     </td>
+                    <td className={entry.is_synthetic !== false ? 'text-xs text-amber-700' : 'text-xs text-emerald-700'}>
+                      {entry.is_synthetic !== false ? '模拟数据' : '真实来源'}
+                    </td>
                     <td>
                       <SourceLink url={entry.source_url} label="查看来源" />
                     </td>
@@ -92,6 +96,9 @@ export function EvidenceTable({ evidence, studentRank }: EvidenceTableProps) {
               <li key={`analog-${index}`}>
                 {entry.note}：{entry.year} 年最低位次 {formatRank(entry.min_rank)}
                 {entry.plan_count ? `，计划 ${formatPlanCount(entry.plan_count)}` : ''} ·{' '}
+                <span className={entry.is_synthetic !== false ? 'text-amber-700' : 'text-emerald-700'}>
+                  {entry.is_synthetic !== false ? '模拟数据' : '真实来源'} ·{' '}
+                </span>
                 <SourceLink url={entry.source_url} label="来源" />
               </li>
             ))}
