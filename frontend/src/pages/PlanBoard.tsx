@@ -175,6 +175,11 @@ export function PlanBoardPage() {
     [effectiveOrder, persist],
   )
 
+  const locateFirstInTier = useCallback((tier: string) => {
+    const unitId = effectiveOrder.find((id) => itemById.get(id)?.tier === tier)
+    if (unitId) scrollToElement(`unit-row-${unitId}`)
+  }, [effectiveOrder, itemById])
+
   // -------------------------------------------------------------------------
   if (!complete) {
     return (
@@ -363,7 +368,9 @@ export function PlanBoardPage() {
                 <div className="mt-2">
                   <GradientChart
                     distribution={plan.tier_distribution}
-                    maxVolunteers={maxVolunteers}                  />
+                    maxVolunteers={maxVolunteers}
+                    onTierClick={locateFirstInTier}
+                  />
                 </div>
                 <p className="mt-2 text-xs text-slate-500">
                   「保/垫」偏少是正常的：安全闸门会把给不出 30% 余量的高概率单位降级为「稳」，

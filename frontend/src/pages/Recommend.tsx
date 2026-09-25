@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
 import {
@@ -15,7 +15,7 @@ import { ErrorNote, EmptyState, Loading, SourceLink, WarningList } from '../comp
 import { TierBadge } from '../components/TierBadge'
 import { TierLegend } from '../components/Disclaimer'
 import { formatNumber, formatPlanCount, formatRank, formatTuition, describeSubjectRequirement } from '../lib/format'
-import { useAsync } from '../lib/hooks'
+import { scrollToElement, useAsync } from '../lib/hooks'
 import { TIER_LABEL, TIER_ORDER, TIER_STYLE, UNIT_TYPE_LABEL, missingFieldLabel, provinceLabel, regionLabel, riskCodeLabel } from '../lib/labels'
 import { isProfileComplete, useProfileStore } from '../store/profile'
 import { usePlanStore } from '../store/plan'
@@ -44,6 +44,11 @@ export function RecommendPage() {
 
   const [includeTooRisky, setIncludeTooRisky] = useState(false)
   const [limit, setLimit] = useState(DEFAULT_LIMIT)
+  const [collegeSearchInput, setCollegeSearchInput] = useState('')
+  const [collegeSearch, setCollegeSearch] = useState('')
+  const [searchIndex, setSearchIndex] = useState(0)
+  const [searchCycle, setSearchCycle] = useState(0)
+  const [openedTiers, setOpenedTiers] = useState<Partial<Record<Tier, boolean>>>({})
 
   const studentId = profile.studentId
   const reportedMissing = profile.student?.missing_fields ?? []
@@ -86,6 +91,32 @@ export function RecommendPage() {
   )
 
   const items = recommendation.data?.data.items ?? []
+  const searchMatches = useMemo(() => {
+    const query = collegeSearch.trim().toLocaleLowerCase()
+    if (!query) return []
+    return items.filter((item) => (item.college?.name ?? item.unit.college_id).toLocaleLowerCase().includes(query))
+  }, [items, collegeSearch])
+  const activeSearchIndex = Math.min(searchIndex, Math.max(searchMatches.length - 1, 0))
+  const activeSearchMatch = searchMatches[activeSearchIndex] ?? null
+
+  useEffect(() => {
+    if (!activeSearchMatch) return
+    const tier = activeSearchMatch.tier
+    setOpenedTiers((current) => ({ ...current, [tier]: true }))
+    let cancelled = false
+    let secondFrame: number | null = null
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        if (cancelled) return
+        scrollToElement(`unit-${activeSearchMatch.unit.unit_id}`)
+      })
+    })
+    return () => {
+      cancelled = true
+      window.cancelAnimationFrame(firstFrame)
+      if (secondFrame !== null) window.cancelAnimationFrame(secondFrame)
+    }
+  }, [activeSearchMatch, searchCycle])
   const stats: RecommendStats | null = recommendation.data?.data.stats ?? null
   const sourceFlags = items.flatMap((item) => [
     item.unit.is_synthetic,
@@ -307,6 +338,60 @@ export function RecommendPage() {
         </p>
       )}
 
+      {items.length > 0 && (
+        <form
+          className="card card-pad flex flex-wrap items-end gap-3"
+          role="search"
+          onSubmit={(event) => {
+            event.preventDefault()
+            setCollegeSearch(collegeSearchInput.trim())
+            setSearchIndex(0)
+            setSearchCycle((cycle) => cycle + 1)
+          }}
+        >
+          <div className="min-w-56 flex-1">
+            <label className="label" htmlFor="recommend-college-search">按大学名称定位</label>
+            <input
+              id="recommend-college-search"
+              className="input"
+              type="search"
+              value={collegeSearchInput}
+              onChange={(event) => setCollegeSearchInput(event.target.value)}
+              placeholder="输入大学名称，例如浙江大学"
+            />
+          </div>
+          <button type="submit" className="btn-secondary">搜索</button>
+          {collegeSearch && (
+            <div className="flex flex-wrap items-center gap-2 text-sm" aria-live="polite">
+              {searchMatches.length === 0 ? (
+                <span className="text-slate-600">当前推荐列表中没有匹配的大学</span>
+              ) : (
+                <>
+                  <span className="text-slate-600">
+                    找到 {searchMatches.length} 条推荐，当前 {activeSearchIndex + 1}/{searchMatches.length}
+                    {activeSearchMatch ? ` · ${activeSearchMatch.unit.major_name}` : ''}
+                  </span>
+                  {searchMatches.length > 1 && (
+                    <>
+                      <button
+                        type="button"
+                        className="btn-ghost"
+                        onClick={() => setSearchIndex((activeSearchIndex - 1 + searchMatches.length) % searchMatches.length)}
+                      >上一个</button>
+                      <button
+                        type="button"
+                        className="btn-ghost"
+                        onClick={() => setSearchIndex((activeSearchIndex + 1) % searchMatches.length)}
+                      >下一个</button>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </form>
+      )}
+
       {/* ------------------------------ 列表 ------------------------------ */}
       {recommendation.loading && <Loading label="正在按位次法计算每个单位的录取概率…" rows={4} />}
       {!!recommendation.error && (
@@ -334,7 +419,16 @@ export function RecommendPage() {
           const bucket = grouped.get(tier) ?? []
           const style = TIER_STYLE[tier]
           return (
-            <details key={tier} id={`tier-${tier}`} open={tierIndex === 0} className="card card-pad">
+            <details
+              key={tier}
+              id={`tier-${tier}`}
+              open={openedTiers[tier] ?? tierIndex === 0}
+              onToggle={(event) => {
+                const isOpen = event.currentTarget.open
+                setOpenedTiers((current) => ({ ...current, [tier]: isOpen }))
+              }}
+              className="card card-pad"
+            >
               <summary className="flex cursor-pointer list-none items-center gap-3 text-base font-semibold">
                 <span className={`chip ${style.badge}`}>{style.name}</span>
                 <span className="num text-slate-500">{bucket.length}</span>
@@ -375,7 +469,11 @@ function RecommendCard({
   const planTooSmall = unit.plan_count < 5
 
   return (
-    <article className="card card-pad" id={`unit-${unit.unit_id}`}>
+    <article
+      className="card card-pad focus:outline-none focus:ring-2 focus:ring-sky-500"
+      id={`unit-${unit.unit_id}`}
+      tabIndex={-1}
+    >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">

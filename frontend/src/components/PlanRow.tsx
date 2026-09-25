@@ -56,6 +56,7 @@ export function PlanRow({
   return (
     <li
       id={`unit-row-${unit.unit_id}`}
+      tabIndex={-1}
       draggable
       onDragStart={onDragStart}
       onDragEnter={onDragEnter}
@@ -66,7 +67,7 @@ export function PlanRow({
         onDrop()
       }}
       className={[
-        'card card-pad transition',
+        'card card-pad transition focus:outline-none focus:ring-2 focus:ring-sky-500',
         dragging ? 'opacity-40' : '',
         dropTarget ? 'ring-2 ring-sky-400' : '',
       ].join(' ')}

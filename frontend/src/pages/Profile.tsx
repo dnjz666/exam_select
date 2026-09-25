@@ -7,13 +7,13 @@ import { ErrorNote, Loading, SourceLink, WarningList } from '../components/State
 import { StepIndicator } from '../components/StepIndicator'
 import { formatCoverage, formatNumber, formatRank, formatScore } from '../lib/format'
 import { useAsync, useDebouncedValue } from '../lib/hooks'
-import { PROVINCE_LABEL, UNIT_TYPE_LABEL, missingFieldLabel, provinceLabel, verifiedStyle } from '../lib/labels'
+import { REGION_LABEL, UNIT_TYPE_LABEL, missingFieldLabel, provinceLabel, regionLabel, verifiedStyle } from '../lib/labels'
 import { isProfileComplete, submitDraft, useProfileStore } from '../store/profile'
 
 const STEPS = ['选省份', '选选考科目', '填成绩', '偏好与身体条件'] as const
 
-/** 意向地区候选项：来自后端规则包（禁止前端另立一份省份清单）。 */
-const REGION_OPTIONS = Object.keys(PROVINCE_LABEL)
+/** 意向地区覆盖当前院校库所含的全国 31 个省级地区；报考省仍由后端规则包控制。 */
+const REGION_OPTIONS = Object.keys(REGION_LABEL)
 
 /**
  * 意向院校层次候选项（ADR-022：从推荐页移入建档向导）。
@@ -42,6 +42,8 @@ function formatProvinceWarning(warning: string, province: string): string {
 export function ProfilePage() {
   const navigate = useNavigate()
   const [step, setStep] = useState(1)
+  const [actionBusy, setActionBusy] = useState(false)
+  const [actionError, setActionError] = useState<unknown>(null)
   const meta = useAsync(() => api.meta.provinces(), [])
 
   const profile = useProfileStore()
@@ -86,7 +88,12 @@ export function ProfilePage() {
               系统不会替你假设任何缺失信息。
             </p>
           </div>
-          <StepIndicator steps={STEPS} current={step} maxReachable={maxReachable} onJump={setStep} />
+          <StepIndicator
+            steps={STEPS}
+            current={step}
+            maxReachable={maxReachable}
+            onJump={actionBusy ? undefined : setStep}
+          />
         </div>
         {selected && meta.data?.warnings?.some((warning) => warning.startsWith(`${selected.province}:`)) ? (
           <div className="mt-3">
@@ -106,14 +113,15 @@ export function ProfilePage() {
           onSelect={async (province) => {
             profile.setProvince(province.province, province.current_year)
             // 立即落后端草稿：后面每一步都 PATCH 同一份档案（§8.1「同时存 localStorage 与后端草稿」）
+            setActionBusy(true)
             try {
               await submitDraft()
             } catch {
               /* 草稿创建失败不阻断向导：下一步会重试，错误在提交处统一提示 */
+            } finally {
+              setActionBusy(false)
             }
-            setStep(2)
           }}
-          onNext={() => setStep(2)}
         />
       )}
 
@@ -122,32 +130,26 @@ export function ProfilePage() {
           province={selected}
           pool={subjectPool}
           choose={choose}
-          onDone={async () => {
-            try {
-              await submitDraft()
-            } catch {
-              /* 同上：错误在进入推荐/成绩换算时统一呈现 */
-            }
-            setStep(3)
-          }}
         />
       )}
 
       {step === 3 && (
         <Step3Score
           provinceMeta={selected}
-          onDone={() => setStep(4)}
         />
       )}
 
-      {step === 4 && (
-        <Step4Preferences
-          provinceMeta={selected}
-          onFinish={async () => {
-            const student = await submitDraft()
-            if ((student.missing_fields ?? []).length === 0) navigate('/recommend')
-          }}
-          complete={complete}
+      {step === 4 && <Step4Preferences />}
+
+      {!!actionError && (
+        <ErrorNote
+          title={step === 4 ? '保存档案失败' : '保存进度失败'}
+          message={actionError instanceof Error ? actionError.message : String(actionError)}
+          hint={
+            actionError instanceof ApiError && actionError.code === 'PROFILE_INCOMPLETE'
+              ? `缺少：${actionError.missingFields.map(missingFieldLabel).join('、')}`
+              : undefined
+          }
         />
       )}
 
@@ -155,7 +157,7 @@ export function ProfilePage() {
         <button
           type="button"
           className="btn-secondary"
-          disabled={step === 1}
+          disabled={step === 1 || actionBusy}
           onClick={() => setStep((value) => Math.max(1, value - 1))}
         >
           上一步
@@ -164,25 +166,37 @@ export function ProfilePage() {
           <button
             type="button"
             className="btn-primary"
-            disabled={step >= maxReachable}
+            disabled={step >= maxReachable || actionBusy}
             title={step >= maxReachable ? '请先完成当前步骤' : undefined}
-            onClick={() => setStep((value) => Math.min(4, value + 1))}
+            onClick={() => {
+              setActionBusy(true)
+              setActionError(null)
+              const advance = step === 2 ? submitDraft() : Promise.resolve(null)
+              void advance
+                .then(() => setStep((value) => Math.min(4, value + 1)))
+                .catch((error: unknown) => setActionError(error))
+                .finally(() => setActionBusy(false))
+            }}
           >
-            下一步
+            {actionBusy ? '保存中…' : '下一步'}
           </button>
         ) : (
           <button
             type="button"
             className="btn-primary"
+            disabled={actionBusy}
             onClick={() => {
+              setActionBusy(true)
+              setActionError(null)
               void submitDraft()
                 .then((student) => {
                   if ((student.missing_fields ?? []).length === 0) navigate('/recommend')
                 })
-                .catch(() => undefined)
+                .catch((error: unknown) => setActionError(error))
+                .finally(() => setActionBusy(false))
             }}
           >
-            完成，进入推荐
+            {actionBusy ? '提交中…' : complete ? '完成，进入推荐' : '保存并进入推荐'}
           </button>
         )}
       </div>
@@ -197,12 +211,10 @@ function Step1Province({
   provinces,
   selected,
   onSelect,
-  onNext,
 }: {
   provinces: ProvinceMeta[]
   selected: ProvinceMeta | null
   onSelect: (province: ProvinceMeta) => void | Promise<void>
-  onNext: () => void
 }) {
   const [busy, setBusy] = useState(false)
   // 契约里这些字段是可选的（Pydantic 有默认值 → OpenAPI 非 required）：显式兜底，
@@ -265,9 +277,6 @@ function Step1Province({
         <div className="card card-pad space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="card-title">{provinceLabel(selected.province)} · 投档规则</h2>
-            <button type="button" className="btn-primary" onClick={onNext}>
-              就用这个省，下一步
-            </button>
           </div>
 
           <RuleBanner rule={mainBatch ? ruleToBlock(selected, mainBatch) : null} />
@@ -360,12 +369,10 @@ function Step2Subjects({
   province,
   pool,
   choose,
-  onDone,
 }: {
   province: ProvinceMeta
   pool: ProvinceMeta['subject_pool']
   choose: number
-  onDone: () => void | Promise<void>
 }) {
   const profile = useProfileStore()
   const subjects = profile.subjects
@@ -501,16 +508,6 @@ function Step2Subjects({
         )}
       </div>
 
-      <div className="flex justify-end">
-        <button
-          type="button"
-          className="btn-primary"
-          disabled={!full}
-          onClick={() => void Promise.resolve(onDone())}
-        >
-          选好了，下一步
-        </button>
-      </div>
     </div>
   )
 }
@@ -518,7 +515,7 @@ function Step2Subjects({
 // ---------------------------------------------------------------------------
 // 第 3 步：填成绩
 // ---------------------------------------------------------------------------
-function Step3Score({ provinceMeta, onDone }: { provinceMeta: ProvinceMeta | null; onDone: () => void }) {
+function Step3Score({ provinceMeta }: { provinceMeta: ProvinceMeta | null }) {
   const profile = useProfileStore()
   const debouncedScore = useDebouncedValue(profile.totalScore, 500)
   const [converting, setConverting] = useState(false)
@@ -698,16 +695,6 @@ function Step3Score({ provinceMeta, onDone }: { provinceMeta: ProvinceMeta | nul
         )}
       </div>
 
-      <div className="flex justify-end">
-        <button
-          type="button"
-          className="btn-primary"
-          disabled={!profile.totalScore || profile.totalScore <= 0}
-          onClick={onDone}
-        >
-          下一步
-        </button>
-      </div>
     </div>
   )
 }
@@ -715,20 +702,10 @@ function Step3Score({ provinceMeta, onDone }: { provinceMeta: ProvinceMeta | nul
 // ---------------------------------------------------------------------------
 // 第 4 步：偏好与身体条件（可跳过）
 // ---------------------------------------------------------------------------
-function Step4Preferences({
-  provinceMeta,
-  onFinish,
-  complete,
-}: {
-  provinceMeta: ProvinceMeta | null
-  onFinish: () => Promise<void>
-  complete: boolean
-}) {
+function Step4Preferences() {
   const profile = useProfileStore()
   const preferences = profile.preferences
   const exam = profile.physicalExam
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState<unknown>(null)
   // ★ ADR-022：意向专业分级选择 —— 门类 → 专业类，来自**后端规则库**
   //   （`/meta/major-taxonomy`，即 docs/MAJOR_TAXONOMY.md）。前端不自己列门类。
   const taxonomy = useAsync(() => api.meta.majorTaxonomy(), [])
@@ -797,7 +774,7 @@ function Step4Preferences({
                       })
                     }
                   >
-                    {provinceLabel(region)}
+                    {regionLabel(region)}
                   </button>
                 )
               })}
@@ -1119,35 +1096,6 @@ function Step4Preferences({
         </section>
       </div>
 
-      {!!error && (
-        <ErrorNote
-          title="提交失败"
-          message={error instanceof Error ? error.message : String(error)}
-          hint={
-            error instanceof ApiError && error.code === 'PROFILE_INCOMPLETE'
-              ? `缺少：${error.missingFields.map(missingFieldLabel).join('、')}`
-              : undefined
-          }
-        />
-      )}
-
-      <div className="flex flex-wrap items-center justify-end gap-3">
-        {provinceMeta ? null : <span className="text-xs text-rose-700">尚未选择省份</span>}
-        <button
-          type="button"
-          className="btn-primary"
-          disabled={submitting}
-          onClick={() => {
-            setSubmitting(true)
-            setError(null)
-            onFinish()
-              .catch((caught: unknown) => setError(caught))
-              .finally(() => setSubmitting(false))
-          }}
-        >
-          {submitting ? '提交中…' : complete ? '完成，进入推荐' : '保存并进入推荐'}
-        </button>
-      </div>
     </div>
   )
 }

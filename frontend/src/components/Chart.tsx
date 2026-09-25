@@ -31,6 +31,8 @@ export interface ChartProps {
   className?: string
   /** 无障碍标签：图表必须有无障碍替代说明（数字以表格形式同时可读）。 */
   ariaLabel: string
+  /** Optional chart data click callback, receives the clicked series index. */
+  onDataClick?: (dataIndex: number) => void
 }
 
 /**
@@ -39,7 +41,7 @@ export interface ChartProps {
  * 图表只承担"形状"（趋势 / 梯度分布）；**权威数字一律以表格或文本同时给出**，
  * 不让任何结论只存在于像素里。
  */
-export function Chart({ option, height = 240, className, ariaLabel }: ChartProps) {
+export function Chart({ option, height = 240, className, ariaLabel, onDataClick }: ChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<echarts.ECharts | null>(null)
 
@@ -60,6 +62,18 @@ export function Chart({ option, height = 240, className, ariaLabel }: ChartProps
   useEffect(() => {
     chartRef.current?.setOption(option, true)
   }, [option])
+
+  useEffect(() => {
+    const instance = chartRef.current
+    if (!instance || !onDataClick) return undefined
+    const handleClick = (event: { dataIndex?: number }) => {
+      if (typeof event.dataIndex === 'number') onDataClick(event.dataIndex)
+    }
+    instance.on('click', handleClick)
+    return () => {
+      instance.off('click', handleClick)
+    }
+  }, [onDataClick])
 
   return (
     <div

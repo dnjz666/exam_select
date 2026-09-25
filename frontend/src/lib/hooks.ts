@@ -62,5 +62,7 @@ export function useAsync<T>(factory: () => Promise<T>, deps: readonly unknown[])
 /** 元素滚动到视野内（风险面板点"定位到该志愿"时用）。 */
 export function scrollToElement(id: string): void {
   const element = document.getElementById(id)
-  if (element) element.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  if (!(element instanceof HTMLElement)) return
+  element.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  element.focus({ preventScroll: true })
 }
