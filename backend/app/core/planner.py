@@ -53,6 +53,13 @@ def _tier_index(tier: Tier) -> int:
     """分层排序位置；不在冲稳保垫之列（TOO_RISKY / NO_DATA）一律排到最后。"""
     return _TIER_ORDER.index(tier) if tier in _TIER_ORDER else len(_TIER_ORDER)
 
+
+def _dedup_key(candidate: ScoredUnit, batch: BatchRule) -> str:
+    """与初始去重相同的单位键，局部搜索换入时也不能破坏去重。"""
+    if batch.has_major_adjustment:
+        return f"{candidate.unit.college_id}|{candidate.unit.group_code}"
+    return candidate.unit.unit_id
+
 MAX_LOCAL_SEARCH_ITERATIONS = 20
 LOCAL_SEARCH_POOL_LIMIT = 200
 
@@ -87,11 +94,7 @@ def _dedup(candidates: Sequence[ScoredUnit], batch: BatchRule) -> tuple[list[Sco
     chosen: dict[str, ScoredUnit] = {}
     dropped = 0
     for candidate in sorted(usable, key=lambda c: (-c.utility, c.unit.unit_id)):
-        key = (
-            f"{candidate.unit.college_id}|{candidate.unit.group_code}"
-            if batch.has_major_adjustment
-            else candidate.unit.unit_id
-        )
+        key = _dedup_key(candidate, batch)
         if key in chosen:
             dropped += 1
             continue
@@ -143,17 +146,14 @@ def _allocate(
         used_ids.update(c.unit.unit_id for c in take)
         shortfall[tier] = want - len(take)
 
-    # 借位：**优先向更保守的方向借**
-    # 保守顺序 = (DIAN, BAO, WEN, CHONG)；某层不足时先取比它更保守的层（索引更小者，
-    # 由近及远），最保守层不足时才退向更激进的层。
+    # 借位只允许来自更保守的层；没有可用保守候选时保留空位，不能伪装成该层已补齐。
     for tier in _TIER_ORDER:
         need = shortfall.get(tier, 0)
         if need <= 0:
             continue
         index = _CONSERVATIVE_FIRST.index(tier)
         more_conservative = list(reversed(_CONSERVATIVE_FIRST[:index]))
-        less_conservative = list(_CONSERVATIVE_FIRST[index + 1 :])
-        for donor in [*more_conservative, *less_conservative]:
+        for donor in more_conservative:
             if need <= 0:
                 break
             pool = [c for c in pools[donor] if c.unit.unit_id not in used_ids]
@@ -166,20 +166,14 @@ def _allocate(
                     f"{tier.value} 层候选不足，已从更保守的 {donor.value} 层借入 {len(take)} 个志愿。"
                 )
         if need > 0:
-            warnings.append(f"{tier.value} 层候选不足，且相邻层也无可用候选，缺 {need} 个。")
+            warnings.append(f"{tier.value} 层候选不足，且无更保守层可借，缺 {need} 个。")
 
-    # 若总量仍不足，用剩余任意候选补齐（同层优先）
-    capacity = batch.max_volunteers
-    if len(selected) < capacity:
-        leftovers = sorted(
-            (c for c in candidates if c.unit.unit_id not in used_ids),
-            key=lambda c: (-c.utility, c.unit.unit_id),
+    if len(selected) < batch.max_volunteers:
+        warnings.append(
+            f"因相应梯度缺少合格候选，仅生成 {len(selected)}/{batch.max_volunteers} 个志愿；"
+            "未用更激进候选填充保守梯度。"
         )
-        fill = leftovers[: capacity - len(selected)]
-        if fill:
-            selected.extend(fill)
-            warnings.append(f"配额借位后仍有空额，已按效用补入 {len(fill)} 个候选。")
-    return selected[:capacity], warnings
+    return selected[: batch.max_volunteers], warnings
 
 
 def _order_parallel(
@@ -224,15 +218,28 @@ def _local_search(
     """
     required_dian = dian_required(batch, params)
     chosen_ids = {c.unit.unit_id for c in selected}
-    pool = sorted(
-        (c for c in candidates if c.unit.unit_id not in chosen_ids),
-        key=lambda c: (-c.utility, c.unit.unit_id),
-    )[:LOCAL_SEARCH_POOL_LIMIT]
+    pool_by_tier = {
+        tier: sorted(
+            (
+                c
+                for c in candidates
+                if c.unit.unit_id not in chosen_ids and c.tier is tier
+            ),
+            key=lambda c: (-c.utility, c.unit.unit_id),
+        )[:LOCAL_SEARCH_POOL_LIMIT]
+        for tier in _TIER_ORDER
+    }
 
     def structure_ok(items: Sequence[ScoredUnit]) -> bool:
         dian = sum(1 for c in items if c.tier is Tier.DIAN)
         last_safe = bool(items) and items[-1].tier in (Tier.BAO, Tier.DIAN)
-        return dian >= required_dian and len(items) <= batch.max_volunteers and last_safe
+        unique_keys = {_dedup_key(candidate, batch) for candidate in items}
+        return (
+            dian >= required_dian
+            and len(items) <= batch.max_volunteers
+            and last_safe
+            and len(unique_keys) == len(items)
+        )
 
     improved = True
     iterations = 0
@@ -240,7 +247,9 @@ def _local_search(
         improved = False
         iterations += 1
         for position, current in enumerate(list(selected)):
-            for candidate in pool:
+            # 配额决定梯度分布；效用优化只在同一层内换单位，避免考生更改偏好权重
+            # 后，局部搜索把一个梯度的名额挪到另一个梯度。
+            for candidate in pool_by_tier[current.tier]:
                 if candidate.unit.unit_id in {c.unit.unit_id for c in selected}:
                     continue
                 if candidate.utility <= current.utility:

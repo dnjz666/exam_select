@@ -13,7 +13,7 @@ from app.core.models import (
     UnitType,
     VerifiedStatus,
 )
-from app.core.planner import dian_required, generate_plan
+from app.core.planner import _allocate, _local_search, dian_required, generate_plan
 from app.core.rules import get_rule
 
 from factories import make_student, make_unit
@@ -139,6 +139,18 @@ def test_plan_borrows_conservatively_when_tier_short() -> None:
     assert any("借入" in warning for warning in plan.warnings)
 
 
+def test_allocation_leaves_shortage_when_only_more_aggressive_candidates_remain() -> None:
+    batch = ZJ.main_batch()
+    candidates = _pool({Tier.CHONG: batch.max_volunteers}, utility=0.5)
+
+    selected, warnings = _allocate(candidates, batch, ZJ, PARAMS)
+
+    assert len(selected) == ZJ.default_quota(batch)[Tier.CHONG]
+    assert all(candidate.tier is Tier.CHONG for candidate in selected)
+    assert len(selected) < batch.max_volunteers
+    assert any("未用更激进候选填充保守梯度" in warning for warning in warnings)
+
+
 def test_plan_respects_preference_order() -> None:
     batch = ZJ.main_batch()
     candidates = _pool({Tier.WEN: 30, Tier.BAO: 10, Tier.DIAN: 5}, utility=0.5)
@@ -169,6 +181,74 @@ def test_local_search_improves_total_utility() -> None:
     assert any(
         item.unit.unit_id in {c.unit.unit_id for c in high_utility[0]} for item in plan.items
     )
+    # 配额借位后的分布作为局部优化边界；高效用垫底候选不能挤掉其他梯度。
+    assert plan.tier_distribution == {
+        Tier.CHONG.value: 20,
+        Tier.WEN.value: 32,
+        Tier.BAO.value: 20,
+        Tier.DIAN.value: 8,
+    }
+
+    # 改动偏好权重会改变效用次序，但同条件重生成必须保留每档名额。
+    reweighted = [
+        candidate.model_copy(
+            update={
+                "utility": {
+                    Tier.CHONG: 0.95,
+                    Tier.WEN: 0.80,
+                    Tier.BAO: 0.40,
+                    Tier.DIAN: 0.20,
+                }[candidate.tier]
+            }
+        )
+        for candidate in [*candidates, *high_utility[0]]
+    ]
+    regenerated = generate_plan(make_student(), reweighted, ZJ, batch, PARAMS)
+    assert regenerated.tier_distribution == plan.tier_distribution
+
+
+def test_local_search_swaps_only_within_tier_and_preserves_group_uniqueness() -> None:
+    batch = SH.main_batch()
+    selected = [
+        _scored(1000, Tier.CHONG, 0.10, province="shanghai", group="G1", unit_type=batch.unit_type),
+        _scored(1001, Tier.WEN, 0.20, province="shanghai", group="G2", unit_type=batch.unit_type),
+        _scored(1002, Tier.BAO, 0.30, province="shanghai", group="G3", unit_type=batch.unit_type),
+        _scored(1003, Tier.DIAN, 0.40, province="shanghai", group="G4", unit_type=batch.unit_type),
+        _scored(1007, Tier.DIAN, 0.40, province="shanghai", group="G7", unit_type=batch.unit_type),
+        _scored(1008, Tier.DIAN, 0.40, province="shanghai", group="G8", unit_type=batch.unit_type),
+        _scored(1009, Tier.DIAN, 0.40, province="shanghai", group="G9", unit_type=batch.unit_type),
+    ]
+    # 该 WEN 候选与已选 CHONG 属于同一院校专业组，不能替换 WEN 名额。
+    duplicate_group = _scored(
+        1004, Tier.WEN, 0.99, province="shanghai", group="G1", unit_type=batch.unit_type
+    )
+    duplicate_group.unit = duplicate_group.unit.model_copy(
+        update={"college_id": selected[0].unit.college_id}
+    )
+    valid_same_tier = _scored(
+        1005, Tier.WEN, 0.50, province="shanghai", group="G5", unit_type=batch.unit_type
+    )
+    tempting_other_tier = _scored(
+        1006, Tier.DIAN, 1.00, province="shanghai", group="G6", unit_type=batch.unit_type
+    )
+
+    improved = _local_search(
+        selected,
+        [*selected, valid_same_tier, tempting_other_tier],
+        batch,
+        PARAMS,
+    )
+
+    assert [item.tier for item in improved] == [item.tier for item in selected]
+    assert improved[1].unit.unit_id == valid_same_tier.unit.unit_id
+    assert {tier: sum(item.tier is tier for item in improved) for tier in Tier} == {
+        tier: sum(item.tier is tier for item in selected) for tier in Tier
+    }
+    group_keys = [(item.unit.college_id, item.unit.group_code) for item in improved]
+    assert len(group_keys) == len(set(group_keys))
+
+    unchanged = _local_search(selected, [*selected, duplicate_group], batch, PARAMS)
+    assert unchanged[1].unit.unit_id == selected[1].unit.unit_id
 
 
 def test_sequential_batch_uses_utility_order_without_quota() -> None:
